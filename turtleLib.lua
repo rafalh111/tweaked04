@@ -1,5 +1,7 @@
 local nav = require("nav022")
 local utils = require("utils")
+local vector = require("vector")
+local turtle
 
 local turtleLib = {}
 
@@ -105,7 +107,7 @@ function turtleLib.SafeTurn(TurtleObject, direction)
         TurtleObject.face = neswDirections[TurtleObject.faceIndex]
     end
 
-    Sonar(true, false, false)
+    turtleLib.Sonar(true, false, false)
     utils.SerializeAndSave(TurtleObject, "turtleLog")
 end
 
@@ -113,22 +115,22 @@ function turtleLib.SafeMove(TurtleObject, direction)
     local success = false
     if direction == "forward" and turtle.forward() then
         success = true
-        Sonar(true, true, true)
+        turtleLib.Sonar(true, true, true)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors[TurtleObject.face])
     elseif direction == "up" and turtle.up() then
         success = true
-        Sonar(true, true, false)
+        turtleLib.Sonar(true, true, false)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["up"])
     elseif direction == "down" and turtle.down() then
         success = true
-        Sonar(true, false, true)
+        turtleLib.Sonar(true, false, true)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["down"])
     end
     
     if success then
         utils.SerializeAndSave(TurtleObject, "turtleLog")
     else
-        Sonar(true, true, true)
+        turtleLib.Sonar(true, true, true)
     end
 
     return success
@@ -138,27 +140,27 @@ function turtleLib.MoveToDirection(TurtleObject, targetFace)
     local success
 
     if targetFace == "up" then
-        success = SafeMove(TurtleObject, "up")
+        success = turtleLib.SafeMove(TurtleObject, "up")
     elseif targetFace == "down" then
-        success = SafeMove(TurtleObject, "down")
+        success = turtleLib.SafeMove(TurtleObject, "down")
     else
-        local diff = (FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
+        local diff = (turtleLib.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
 
         if diff == 1 then
-            SafeTurn(TurtleObject, "right")
+            turtleLib.SafeTurn(TurtleObject, "right")
         elseif diff == 2 then
             if math.random(1, 2) == 1 then
-                SafeTurn(TurtleObject, "left")
-                SafeTurn(TurtleObject, "left")
+                turtleLib.SafeTurn(TurtleObject, "left")
+                turtleLib.SafeTurn(TurtleObject, "left")
             else
-                SafeTurn(TurtleObject, "right")
-                SafeTurn(TurtleObject, "right")
+                turtleLib.SafeTurn(TurtleObject, "right")
+                turtleLib.SafeTurn(TurtleObject, "right")
             end
         elseif diff == 3 then
-            SafeTurn(TurtleObject, "left")
+            turtleLib.SafeTurn(TurtleObject, "left")
         end
         
-        success = SafeMove(TurtleObject, "forward")
+        success = turtleLib.SafeMove(TurtleObject, "forward")
     end
 
     return success
@@ -174,7 +176,7 @@ function turtleLib.Step(TurtleObject, x, y, z)
     
     local targetFace = duwsenDirectionVectors[delta:tostring()]
 
-    if not MoveToDirection(TurtleObject, targetFace) then
+    if not turtleLib.MoveToDirection(TurtleObject, targetFace) then
         return false
     end
 
@@ -198,7 +200,7 @@ function turtleLib.Journey(TurtleObject, x, y, z)
         end
         
         for _, step in ipairs(bestPath) do
-            if not Step(TurtleObject, step["vector"].x, step["vector"].y, step["vector"].z) then
+            if not turtleLib.Step(TurtleObject, step["vector"].x, step["vector"].y, step["vector"].z) then
                 break
             end
         end
