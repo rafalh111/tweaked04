@@ -1,3 +1,7 @@
+local vector
+local fs
+local textutils
+
 local utils = {}
 
 function utils.TableContains(tbl, element)
@@ -55,13 +59,13 @@ end
 -- ...existing code...
 
 utils.Heap = {}
-Heap.__index = Heap
+utils.Heap.__index = utils.Heap
 
-function Heap:swap(i, j)
+function utils.Heap:swap(i, j)
     self[i], self[j] = self[j], self[i]
 end
 
-function Heap:push(node)
+function utils.Heap:push(node)
     table.insert(self, node)
     local i = #self
     while i > 1 do
@@ -75,7 +79,7 @@ function Heap:push(node)
     end
 end
 
-function Heap:siftDown(i)
+function utils.Heap:siftDown(i)
     local size = #self
     while true do
         local left = 2 * i
@@ -97,7 +101,7 @@ function Heap:siftDown(i)
     end
 end
 
-function Heap:pop()
+function utils.Heap:pop()
     if #self == 0 then
         return nil
     end
