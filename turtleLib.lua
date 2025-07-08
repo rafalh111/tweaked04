@@ -1,6 +1,5 @@
 local nav = require("nav022")
-local utils = require("utils")
-local vector = require("vector")
+local utils = require("utils")--local vector = require("vector")
 local turtle
 
 local turtleLib = {}
