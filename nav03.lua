@@ -1,25 +1,30 @@
 ---@diagnostic disable: undefined-global, undefined-field
 local utils = require("utils")
+local turtleLib = require("turtleLib")
 
 local nav = {}
 
-function nav.aStar(beginningX, beginningY, beginningZ, destinationX, destinationY, destinationZ)
-    local beginning = vector.new(beginningX, beginningY, beginningZ)
-    local destination = vector.new(destinationX, destinationY, destinationZ)
-    local destinationKey = destination:tostring()
+function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
+    local b = vector.new(bX, bY, bZ)
+    local d = vector.new(dX, dY, dZ)
+    local dKey = d:tostring()
+    
+    if not Obstacles then
+        Obstacles = {}
+    end
 
     local queue = {{
-        vector = beginning,
-        weight = utils.ManhattanDistance(beginning, destination),
+        vector = b,
+        weight = utils.ManhattanDistance(b, d),
         stepCount = 0,
-        turnCount = 0
+        turnCount = 0,
+        direction = bDirection
     }}
 
     setmetatable(queue, utils.Heap)
 
     local cameFrom = {}  -- key: position string, value: parent node
-    local visited = {[beginning:tostring()] = true}
-    local Obstacles = utils.ReadAndUnserialize("map") or {}
+    local visited = {[b:tostring()] = true}
 
     local loopCount = 0
     while #queue > 0 do
@@ -32,7 +37,7 @@ function nav.aStar(beginningX, beginningY, beginningZ, destinationX, destination
         local current = queue:pop()
         local currentKey = current["vector"]:tostring()
 
-        if currentKey == destinationKey then
+        if currentKey == dKey then
 
             local bestPath = {}
 
@@ -47,7 +52,7 @@ function nav.aStar(beginningX, beginningY, beginningZ, destinationX, destination
             return bestPath
         end
 
-        local neighbors = {
+        local neighborVectors = {
             current["vector"]:add(vector.new(1, 0, 0)),
             current["vector"]:add(vector.new(-1, 0, 0)),
             current["vector"]:add(vector.new(0, 0, 1)),
@@ -56,28 +61,28 @@ function nav.aStar(beginningX, beginningY, beginningZ, destinationX, destination
             current["vector"]:add(vector.new(0, -1, 0))
         }
 
-        for _, neighbor in ipairs(neighbors) do
-            local neighborKey = neighbor:tostring()
+        for _, neighborVector in ipairs(neighborVectors) do
+            local neighborKey = neighborVector:tostring()
             if not visited[neighborKey] and not Obstacles[neighborKey] then
-                local estimatedDistance = utils.ManhattanDistance(neighbor, destination)
-
-                local turnsSoFar = current["turnCount"]
-                if loopCount > 1 and not (neighbor:sub(current["vector"]):equals(current["vector"]:sub(cameFrom[currentKey]["vector"]))) then
-                    turnsSoFar = turnsSoFar + 1
+                local toPush = {
+                    vector = neighborVector,
+                    weight = nil,
+                    stepCount = current["stepCount"] + 1,
+                    turnCount = current["turnCount"],
+                    direction = turtleLib.duwsenDirectionVectors.neighborVector:sub(current["vector"])
+                }
+                
+                if toPush["direction"] ~= current["direction"] then
+                    toPush["turnCount"] = toPush["turnCount"] + 1
                 end
-
-                local stepsSoFar = current["stepCount"] + 1
-                local weight = estimatedDistance + stepsSoFar + turnsSoFar
+                
+                local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
+                toPush["weight"] = estimatedDistance + toPush["stepCount"] + toPush["turnCount"]
 
                 visited[neighborKey] = true
                 cameFrom[neighborKey] = current
 
-                queue:push({
-                    vector = neighbor,
-                    weight = weight,
-                    stepCount = stepsSoFar,
-                    turnCount = turnsSoFar
-                })
+                queue:push(toPush)
             end
         end
     end
