@@ -1,7 +1,9 @@
 local nav = require("nav03")
 local utils = require("utils")
 local vector = require("vector")
-local turtle
+local turtle = require("turtle")
+local rednet
+local textutils
 
 local turtleLib = {}
 
@@ -33,6 +35,7 @@ function turtleLib.FaceToIndex(face)
 end
 
 function turtleLib.LoadTurtleState()
+    local TurtleObject
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
 
     if turtleLog then
@@ -47,129 +50,127 @@ function turtleLib.LoadTurtleState()
             busy = false,
         }
     end
+
+    return TurtleObject
 end
 
-function turtleLib.Sonar(InFront, Above, Below)
-    local inspectTable = {}
+function turtleLib.SendLogToBase(TurtleObject, id)
+    if id and TurtleObject then
+        rednet.send(id, textutils.serialise(TurtleObject))
+    end
+end
+
+function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below)
+    local detectedChanges = {}
 
     if InFront then
         local blockInFrontVectorKey = TurtleObject.position:add(neswudDirectionVectors[TurtleObject.face]):tostring()
         local blockedForward, dataForward = turtle.inspect()
-        inspectTable[blockInFrontVectorKey] = {blocked = blockedForward, data = dataForward.name}
+        detectedChanges[blockInFrontVectorKey] = {blocked = blockedForward, data = dataForward.name}
     end
 
     if Above then
         local blockAboveVectorKey = TurtleObject.position:add(neswudDirectionVectors["up"]):tostring()
         local blockedUp, dataUp = turtle.inspectUp()
-        inspectTable[blockAboveVectorKey] = {blocked = blockedUp, data = dataUp.name}
+        detectedChanges[blockAboveVectorKey] = {blocked = blockedUp, data = dataUp.name}
     end
 
     if Below then
         local blockBelowVectorKey = TurtleObject.position:add(neswudDirectionVectors["down"]):tostring()
         local blockedDown, dataDown = turtle.inspectDown()
-        inspectTable[blockBelowVectorKey] = {blocked = blockedDown, data = dataDown.name}
+        detectedChanges[blockBelowVectorKey] = {blocked = blockedDown, data = dataDown.name}
     end
 
-    local Obstacles = utils.ReadAndUnserialize("map") or {}
-
     local changeDetected = false
-    for vectorKey, inspectVariables in pairs(inspectTable) do
+    for vectorKey, inspectVariables in pairs(detectedChanges) do
         if inspectVariables.blocked and not Obstacles[vectorKey] then
-            -- if not inspectVariables.data == "computercraft:turtle_advanced" then
-            --     Obstacles[vectorKey] = inspectVariables.data
-            --     changeDetected = true
-            -- else
-            --     os.sleep(5)  -- Avoid rapid updates
-            -- end
-            Obstacles[vectorKey] = inspectVariables.data
             changeDetected = true
         elseif not inspectVariables.blocked and Obstacles[vectorKey] then
-            Obstacles[vectorKey] = nil
+            detectedChanges[vectorKey] = "phantom"
             changeDetected = true
+        else
+            detectedChanges[vectorKey] = nil
         end
     end
 
     if changeDetected then
-        utils.SerializeAndSave(Obstacles, "map")
+        rednet.send(TurtleObject.baseID, textutils.serialize(detectedChanges), "MapUpdate")
     end
-
-    return inspectTable
 end
 
-function turtleLib.SafeTurn(direction)
+function turtleLib.SafeTurn(TurtleObject, Obstacles, direction)
     if direction == "left" then
         turtle.turnLeft()
         TurtleObject.faceIndex = (TurtleObject.faceIndex - 2) % 4 + 1
         TurtleObject.face = neswDirections[TurtleObject.faceIndex]
     elseif direction == "right" then
----@diagnostic disable-next-line: undefined-global
         turtle.turnRight()
         TurtleObject.faceIndex = TurtleObject.faceIndex % 4 + 1
         TurtleObject.face = neswDirections[TurtleObject.faceIndex]
     end
 
-    turtleLib.Sonar(true, false, false)
+    turtleLib.Sonar(TurtleObject, Obstacles, true, false, false)
     utils.SerializeAndSave(TurtleObject, "turtleLog")
 end
 
-function turtleLib.SafeMove(direction)
+function turtleLib.SafeMove(TurtleObject, Obstacles, direction)
     local success = false
     if direction == "forward" and turtle.forward() then
         success = true
-        turtleLib.Sonar(true, true, true)
+        turtleLib.Sonar(TurtleObject, Obstacles, true, true, true)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors[TurtleObject.face])
     elseif direction == "up" and turtle.up() then
         success = true
-        turtleLib.Sonar(true, true, false)
+        turtleLib.Sonar(TurtleObject, Obstacles, true, true, false)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["up"])
     elseif direction == "down" and turtle.down() then
         success = true
-        turtleLib.Sonar(true, false, true)
+        turtleLib.Sonar(TurtleObject, Obstacles, true, false, true)
         TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["down"])
     end
     
     if success then
         utils.SerializeAndSave(TurtleObject, "turtleLog")
     else
-        turtleLib.Sonar(true, true, true)
+        turtleLib.Sonar(TurtleObject, Obstacles, true, true, true)
     end
 
     return success
 end
 
-function turtleLib.MoveToDirection(targetFace)
+function turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace)
     local success
     
     if targetFace == "up" then
-        success = turtleLib.SafeMove("up")
+        success = turtleLib.SafeMove(TurtleObject, Obstacles, "up")
     elseif targetFace == "down" then
-        success = turtleLib.SafeMove("down")
+        success = turtleLib.SafeMove(TurtleObject, Obstacles, "down")
     else
         local diff = (turtleLib.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
         
         if diff ~= 0 then
             if diff == 1 then
-                turtleLib.SafeTurn("right")
+                turtleLib.SafeTurn(TurtleObject, Obstacles, "right")
             elseif diff == 2 then
                 if math.random(1, 2) == 1 then
-                    turtleLib.SafeTurn("left")
-                    turtleLib.SafeTurn("left")
+                    turtleLib.SafeTurn(TurtleObject, Obstacles, "left")
+                    turtleLib.SafeTurn(TurtleObject, Obstacles, "left")
                 else
-                    turtleLib.SafeTurn("right")
-                    turtleLib.SafeTurn("right")
+                    turtleLib.SafeTurn(TurtleObject, Obstacles, "right")
+                    turtleLib.SafeTurn(TurtleObject, Obstacles, "right")
                 end
             else
-                turtleLib.SafeTurn("left")
+                turtleLib.SafeTurn(TurtleObject, Obstacles, "left")
             end
         end
         
-        success = turtleLib.SafeMove("forward")
+        success = turtleLib.SafeMove(TurtleObject, Obstacles, "forward")
     end
 
     return success
 end
 
-function turtleLib.MoveToNeighbor(x, y, z)
+function turtleLib.MoveToNeighbor(TurtleObject, Obstacles, x, y, z)
     local targetV = vector.new(x, y, z)
     local delta = targetV:sub(TurtleObject.position)
     
@@ -179,23 +180,30 @@ function turtleLib.MoveToNeighbor(x, y, z)
     
     local targetFace = duwsenDirectionVectors[delta:tostring()]
 
-    if not turtleLib.MoveToDirection(targetFace) then
+    if not turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace) then
         return false
     end
 
     return true
 end
 
-function turtleLib.Journey(x, y, z)
+function turtleLib.Journey(TurtleObject, Obstacles, x, y, z)
     local destination = vector.new(x, y, z)
-    local obstacles = utils.ReadAndUnserialize("map") or {}
+    
+    while not Obstacles do
+        rednet.send(TurtleObject.id, "Journey", "MapRequest")
+        local senderID, message, protocol = rednet.receive()
+        if protocol == "MapSupply" then
+            Obstacles = textutils.unserialize(message)
+        end
+    end
     
     TurtleObject.busy = true
 
     while not TurtleObject.position:equals(destination) do
         local bestPath = nav.aStar(
             TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
-            destination.x, destination.y, destination.z, obstacles
+            destination.x, destination.y, destination.z, Obstacles
         )
 
         if not bestPath then
@@ -205,7 +213,7 @@ function turtleLib.Journey(x, y, z)
         end
 
         for _, step in ipairs(bestPath) do
-            if not turtleLib.moveToDirection(TurtleObject, step["direction"]) then
+            if not turtleLib.MoveToDirection(TurtleObject, Obstacles, step["direction"]) then
                 break
             end
         end

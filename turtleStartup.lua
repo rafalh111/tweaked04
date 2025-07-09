@@ -2,15 +2,14 @@
 local turtleApi = require("turtleApi")
 local utils = require("utils")
 local nav = require("nav03")
-local args = { ... }
 local rednet
 
-local data = turtleApi.LoadTurtleState()
-rednet.send(data["baseID"], "new turtle with ID:" .. data.id)
+local TurtleObject = turtleApi.LoadTurtleState()
+rednet.send(TurtleObject["baseID"], "new turtle with ID:" .. TurtleObject.id)
 
 while true do
     local id, message = rednet.receive()
-    if data and id == data["baseID"] then
+    if id == TurtleObject["baseID"] then
         load(message)()
     end
 
