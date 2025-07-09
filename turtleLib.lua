@@ -189,18 +189,17 @@ end
 
 function turtleLib.Journey(TurtleObject, Obstacles, x, y, z)
     local destination = vector.new(x, y, z)
-    
-    while not Obstacles do
-        rednet.send(TurtleObject.id, "Journey", "MapRequest")
-        local senderID, message, protocol = rednet.receive()
-        if protocol == "MapSupply" then
-            Obstacles = textutils.unserialize(message)
-        end
-    end
-    
     TurtleObject.busy = true
-
+    
     while not TurtleObject.position:equals(destination) do
+        if not Obstacles then
+            rednet.send(TurtleObject.id, "Journey", "MapRequest")
+            local senderID, message, protocol = rednet.receive()
+            if protocol == "MapSupply" then
+                Obstacles = textutils.unserialize(message)
+            end
+        end
+
         local bestPath = nav.aStar(
             TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
             destination.x, destination.y, destination.z, Obstacles
