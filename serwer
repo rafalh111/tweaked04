@@ -3,42 +3,47 @@ const fs = require('fs')
 
 const server = new WebSocket.Server({ port: 8080 });
 const obstacleMap = {};
+const turtleObjects = {};
 
 server.on('connection', socket => {
-  console.log('New turtle connected');
+    console.log('New turtle connected');
 
-  socket.on('message', data => {
-    let message = JSON.parse(data);
+    socket.on('message', data => {
+        let message = JSON.parse(data);
 
-    // if (message.type === 'MapUpdate') {
-    //   const detectedChanges = message.payload;
-    //   for (const vectorKey in detectedChanges) {
-    //     const change = detectedChanges[vectorKey];
+        // if (message.type === 'MapUpdate') {
+        //   const detectedChanges = message.payload;
+        //   for (const vectorKey in detectedChanges) {
+        //     const change = detectedChanges[vectorKey];
 
-    //     if (change === "phantom") {
-    //         delete obstacleMap[vectorKey];
-    //     } else {
-    //         obstacleMap[vectorKey] = change;
-    //     }
-    //   }
-    // }
+        //     if (change === "phantom") {
+        //         delete obstacleMap[vectorKey];
+        //     } else {
+        //         obstacleMap[vectorKey] = change;
+        //     }
+        //   }
+        // }
 
-    if (message.type === 'MapUpdate') {
-        const detected = message.payload;
+        if (message.type === 'MapUpdate') {
+            const detected = message.payload;
 
-        for (const vectorKey in detected) {
-            const inspectVariables = detected[vectorKey];
-        
-            if (inspectVariables.blocked && !obstacleMap[vectorKey]) {
-                obstacleMap[vectorKey] = inspectVariables.data;
-            } else if (!inspectVariables.blocked && obstacleMap[vectorKey]) {
-                delete detectedChanges[vectorKey];
+            for (const vectorKey in detected) {
+                const inspectVariables = detected[vectorKey];
+            
+                if (inspectVariables.blocked && !obstacleMap[vectorKey]) {
+                    obstacleMap[vectorKey] = inspectVariables.data;
+                } else if (!inspectVariables.blocked && obstacleMap[vectorKey]) {
+                    delete detectedChanges[vectorKey];
+                }
             }
         }
-    }
 
-    if (message.type === 'MapRequest') {
-      socket.send(JSON.stringify(obstacleMap));
-    }
-  });
+        if (message.type === 'MapRequest') {
+          socket.send(JSON.stringify(obstacleMap));
+        }
+
+        if (message.type === 'TurtleUpdate') {
+            
+        }
+    });
 });

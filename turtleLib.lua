@@ -101,7 +101,7 @@ function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
     -- end
 end
 
-function turtleLib.SafeTurn(TurtleObject, Obstacles, direction)
+function turtleLib.SafeTurn(TurtleObject, Obstacles, direction, ws)
     if direction == "left" then
         turtle.turnLeft()
         TurtleObject.faceIndex = (TurtleObject.faceIndex - 2) % 4 + 1
@@ -113,10 +113,13 @@ function turtleLib.SafeTurn(TurtleObject, Obstacles, direction)
     end
 
     turtleLib.Sonar(TurtleObject, Obstacles, true, false, false)
+
     utils.SerializeAndSave(TurtleObject, "turtleLog")
+    local message = {type = "TurtleUpdate", payload = TurtleObject}
+    ws.send(textutils.serializeJSON(message))
 end
 
-function turtleLib.SafeMove(TurtleObject, Obstacles, direction)
+function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
     local success = false
     if direction == "forward" and turtle.forward() then
         success = true
@@ -134,6 +137,8 @@ function turtleLib.SafeMove(TurtleObject, Obstacles, direction)
     
     if success then
         utils.SerializeAndSave(TurtleObject, "turtleLog")
+        local message = {type = "TurtleUpdate", payload = TurtleObject}
+        ws.send(textutils.serializeJSON(message))
     else
         turtleLib.Sonar(TurtleObject, Obstacles, true, true, true)
     end
