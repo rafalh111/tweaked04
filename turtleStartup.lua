@@ -4,6 +4,9 @@ local utils = require("utils")
 local nav = require("nav03")
 local rednet
 
+
+local ws, err = http.websocket("ws://your.server.ip:port")
+
 local TurtleObject = turtleApi.LoadTurtleState()
 rednet.send(TurtleObject["baseID"], "new turtle with ID:" .. TurtleObject.id)
 

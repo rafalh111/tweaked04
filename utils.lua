@@ -117,4 +117,6 @@ function utils.Heap:pop()
     return min
 end
 
+utils.PushToWebsite()
+
 return utils

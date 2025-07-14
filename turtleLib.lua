@@ -60,7 +60,7 @@ function turtleLib.SendLogToBase(TurtleObject, id)
     end
 end
 
-function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below)
+function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
     local detectedChanges = {}
 
     if InFront then
@@ -81,21 +81,24 @@ function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below)
         detectedChanges[blockBelowVectorKey] = {blocked = blockedDown, data = dataDown.name}
     end
 
-    local changeDetected = false
-    for vectorKey, inspectVariables in pairs(detectedChanges) do
-        if inspectVariables.blocked and not Obstacles[vectorKey] then
-            changeDetected = true
-        elseif not inspectVariables.blocked and Obstacles[vectorKey] then
-            detectedChanges[vectorKey] = "phantom"
-            changeDetected = true
-        else
-            detectedChanges[vectorKey] = nil
-        end
-    end
+    local message = {type = "MapUpdate", payload = detectedChanges}
+    ws.send(textutils.serializeJSON(message))
 
-    if changeDetected then
-        rednet.send(TurtleObject.baseID, textutils.serialize(detectedChanges), "MapUpdate")
-    end
+    -- local changeDetected = false
+    -- for vectorKey, inspectVariables in pairs(detectedChanges) do
+    --     if inspectVariables.blocked and not Obstacles[vectorKey] then
+    --         changeDetected = true
+    --     elseif not inspectVariables.blocked and Obstacles[vectorKey] then
+    --         detectedChanges[vectorKey] = "phantom"
+    --         changeDetected = true
+    --     else
+    --         detectedChanges[vectorKey] = nil
+    --     end
+    -- end
+
+    -- if changeDetected then
+    --     rednet.send(TurtleObject.baseID, textutils.serialize(detectedChanges), "MapUpdate")
+    -- end
 end
 
 function turtleLib.SafeTurn(TurtleObject, Obstacles, direction)

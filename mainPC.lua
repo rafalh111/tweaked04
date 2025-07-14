@@ -7,6 +7,7 @@ local os
 
 local Obstacles = utils.ReadAndUnserialize("map") or {}
 local updateQueue = {}
+
 while true do
     local senderID, message, protocol = rednet.receive()
     if protocol == "MapRequest" then
