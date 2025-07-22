@@ -2,39 +2,47 @@ const WebSocket = require('ws');
 const fs = require('fs')
 
 const server = new WebSocket.Server({ port: 8080 });
-const obstacleMap = {};
 const turtleObjects = {};
+const obstacleMap = {};
+let mainPC = null;
+
+if (fs.existsSync('obstacleMap.json')) {
+    try {
+        const data = fs.readFileSync('obstacleMap.json', 'utf8');
+        Object.assign(obstacleMap, JSON.parse(data));
+    } catch (error) {
+        console.error('Error reading obstacleMap.json:', error);
+    }
+}
 
 server.on('connection', socket => {
-    console.log('New turtle connected');
+    console.log('New connection established');
+    
+    if (!mainPC) {
+        socket.send('PC?');
+    }
 
     socket.on('message', data => {
         let message = JSON.parse(data);
 
-        // if (message.type === 'MapUpdate') {
-        //   const detectedChanges = message.payload;
-        //   for (const vectorKey in detectedChanges) {
-        //     const change = detectedChanges[vectorKey];
-
-        //     if (change === "phantom") {
-        //         delete obstacleMap[vectorKey];
-        //     } else {
-        //         obstacleMap[vectorKey] = change;
-        //     }
-        //   }
-        // }
-
         if (message.type === 'MapUpdate') {
             const detected = message.payload;
+            let change = false;
 
             for (const vectorKey in detected) {
                 const inspectVariables = detected[vectorKey];
             
                 if (inspectVariables.blocked && !obstacleMap[vectorKey]) {
                     obstacleMap[vectorKey] = inspectVariables.data;
+                    change = true;
                 } else if (!inspectVariables.blocked && obstacleMap[vectorKey]) {
-                    delete detectedChanges[vectorKey];
+                    delete obstacleMap[vectorKey];
+                    change = true;
                 }
+            }
+
+            if (change) {
+                fs.writeFileSync('obstacleMap.json', JSON.stringify(obstacleMap, null, 2));
             }
         }
 
@@ -43,7 +51,22 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'TurtleUpdate') {
-            
+            turtleObjects[message.payload.id] = message.payload;
         }
+
+        if (message.type === 'TurtleBorn') {
+            const turtleObject = {socket: socket, ...message.payload};
+            socket.send(JSON.stringify({type: 'Completion2', payload: turtleObject}));
+            turtleObjects[message.payload.id] = turtleObject;
+        }
+
+        if (message === 'PCConfirm') {
+            mainPC = socket;
+        }
+    });
+
+    socket.on('close', () => {
+        console.log('Turtle disconnected');
+        mainPC.send('')
     });
 });

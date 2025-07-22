@@ -1,21 +1,37 @@
 ---@diagnostic disable: undefined-field
-local turtleApi = require("turtleApi")
+local turtleLib = require("turtleLib")
 local utils = require("utils")
 local nav = require("nav03")
 local rednet
+local textutils
+local http
 
 
-local ws, err = http.websocket("ws://your.server.ip:port")
+local ws, err = http.websocket("ws://your.server.ip:8080")
 
-local TurtleObject = turtleApi.LoadTurtleState()
-rednet.send(TurtleObject["baseID"], "new turtle with ID:" .. TurtleObject.id)
+local TurtleObject = turtleLib.LoadTurtleState(ws)
 
 while true do
-    local id, message = rednet.receive()
-    if id == TurtleObject["baseID"] then
-        load(message)()
+    local event, p1, p2, p3 = os.pullEvent()
+
+    if event == "websocket_message" then
+        local message = textutils.unserializeJSON(p1)
+
+        if message.type == "Completion" then
+            TurtleObject = message.payload
+            utils.SerializeAndSave(TurtleObject, "turtleLog")
+        end
+
+        if message.type == "PC?" then
+            ws.send("notPC")
+        end
     end
 
-    os.queueEvent("yield")
-    os.pullEvent()
+    if event == "rednet_message" then
+        local senderID, message, protocol = p1, p2, p3
+
+        if message == "Scan" then
+            rednet.send(senderID, textutils.serialize(TurtleObject), "ScanResponse")
+        end
+    end
 end

@@ -26,15 +26,12 @@ local duwsenDirectionVectors = {
     [vector.new(0, -1, 0):tostring()] = "down"
 }
 
-function turtleLib.FaceToIndex(face)
-    for index, direction in ipairs(neswDirections) do
-        if direction == face then
-            return index
-        end
-    end
+function turtleLib.downladMap(ws)
+    ws.send("MapRequest")
+    return ws.receive()
 end
 
-function turtleLib.LoadTurtleState()
+function turtleLib.LoadTurtleState(ws)
     local TurtleObject
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
 
@@ -42,22 +39,26 @@ function turtleLib.LoadTurtleState()
         TurtleObject = turtleLog
         TurtleObject.position = vector.new(TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z)
     else
-        TurtleObject = {
-            position = vector.new(22, 79, 45),
-            face = "south",
-            faceIndex = 3,
-            id = turtle.getID(),
-            busy = false,
-        }
+        rednet.send(TurtleObject["baseID"], TurtleObject, "TurtleBorn")
+        local senderID, message, protocol = rednet.receive()
+        if protocol == "Completion1" then
+            message = textutils.unserialize(message)
+            TurtleObject = message
+        end
+
+        local messageToSend = {type = "turtleBorn", payload = TurtleObject}
+        ws.send(textutils.serializeJSON(messageToSend))
+        local message = ws.receive()
+        message = textutils.unserializeJSON(message)
+        if message.type == "Completion2" then
+            TurtleObject = message.payload
+        end
+        
+
+        utils.SerializeAndSave(TurtleObject, "turtleLog")
     end
 
     return TurtleObject
-end
-
-function turtleLib.SendLogToBase(TurtleObject, id)
-    if id and TurtleObject then
-        rednet.send(id, textutils.serialise(TurtleObject))
-    end
 end
 
 function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
@@ -83,22 +84,6 @@ function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
 
     local message = {type = "MapUpdate", payload = detectedChanges}
     ws.send(textutils.serializeJSON(message))
-
-    -- local changeDetected = false
-    -- for vectorKey, inspectVariables in pairs(detectedChanges) do
-    --     if inspectVariables.blocked and not Obstacles[vectorKey] then
-    --         changeDetected = true
-    --     elseif not inspectVariables.blocked and Obstacles[vectorKey] then
-    --         detectedChanges[vectorKey] = "phantom"
-    --         changeDetected = true
-    --     else
-    --         detectedChanges[vectorKey] = nil
-    --     end
-    -- end
-
-    -- if changeDetected then
-    --     rednet.send(TurtleObject.baseID, textutils.serialize(detectedChanges), "MapUpdate")
-    -- end
 end
 
 function turtleLib.SafeTurn(TurtleObject, Obstacles, direction, ws)
@@ -144,6 +129,14 @@ function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
     end
 
     return success
+end
+
+function turtleLib.FaceToIndex(face)
+    for index, direction in ipairs(neswDirections) do
+        if direction == face then
+            return index
+        end
+    end
 end
 
 function turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace)
