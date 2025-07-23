@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, undefined-field
 local nav = require("nav03")
 local utils = require("utils")
 
@@ -61,7 +62,7 @@ function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
 
     for vectorKey, inspectVariables in pairs(detectedChanges) do
         if inspectVariables.blocked and not Obstacles[vectorKey] then
-            Obstacles[vectorKey] = inspectVariables.data;        
+            Obstacles[vectorKey] = inspectVariables.data;   
         elseif not inspectVariables.blocked and Obstacles[vectorKey] then
             Obstacles[vectorKey] = nil
         end
@@ -112,14 +113,6 @@ function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
     return success
 end
 
-function turtleLib.FaceToIndex(face)
-    for index, direction in ipairs(utils.neswDirections) do
-        if direction == face then
-            return index
-        end
-    end
-end
-
 function turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace)
     local success
     
@@ -128,7 +121,7 @@ function turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace)
     elseif targetFace == "down" then
         success = turtleLib.SafeMove(TurtleObject, Obstacles, "down")
     else
-        local diff = (turtleLib.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
+        local diff = (utils.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
         
         if diff ~= 0 then
             if diff == 1 then
@@ -169,19 +162,11 @@ function turtleLib.MoveToNeighbor(TurtleObject, Obstacles, x, y, z)
     return true
 end
 
-function turtleLib.Journey(TurtleObject, Obstacles, x, y, z)
+function turtleLib.Journey(TurtleObject, Obstacles, x, y, z, ws)
     local destination = vector.new(x, y, z)
     TurtleObject.busy = true
     
     while not TurtleObject.position:equals(destination) do
-        -- if not Obstacles then
-        --     rednet.send(TurtleObject.id, "Journey", "MapRequest")
-        --     local senderID, message, protocol = rednet.receive()
-        --     if protocol == "MapSupply" then
-        --         Obstacles = textutils.unserialize(message)
-        --     end
-        -- end
-
         local bestPath = nav.aStar(
             TurtleObject.face,
             TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
@@ -196,14 +181,22 @@ function turtleLib.Journey(TurtleObject, Obstacles, x, y, z)
         end
 
         print("Best path found with " .. #bestPath .. " steps.")
+        local messageToSend = {
+            type = "Journey",
+            payload = bestPath,
+        }
+
+        ws.send(textutils.serializeJSON(messageToSend))
 
         for _, step in ipairs(bestPath) do
-            --if not turtleLib.MoveToNeighbor(TurtleObject, Obstacles, step["vector"].x, step["vector"].y, step["vector"].z) then
             if not turtleLib.MoveToDirection(TurtleObject, Obstacles, step["direction"]) then
                 print("Failed to move to direction: " .. step["direction"])
                 break
             end
         end
+
+        messageToSend["type"] = "Journeys end" 
+        ws.send(textutils.serializeJSON(messageToSend))
     end
 
     TurtleObject.busy = false

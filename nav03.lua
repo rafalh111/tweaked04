@@ -3,7 +3,18 @@ local utils = require("utils")
 
 local nav = {}
 
-function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
+function nav.UpstreamCalculation(obstacle)
+    local directionIndex = utils.FaceToIndex(obstacle["flowDirection"])
+    local upstreamIndex = (directionIndex + 2) % 4
+
+    return utils.neswDirections[upstreamIndex]
+end
+
+function nav.DirectionCalculation(neighborVector, currentVector)
+    return utils.duwsenDirectionVectors[neighborVector:sub(currentVector):tostring()]
+end
+
+function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
     local b = vector.new(bX, bY, bZ)
     local d = vector.new(dX, dY, dZ)
     local dKey = d:tostring()
@@ -26,28 +37,46 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
     local visited = {[b:tostring()] = true}
 
     local loopCount = 0
+    local InitialWeight = utils.ManhattanDistance(b, d) + 0 -- Initial weight is just the Manhattan distance
+    local reverseCheck = false
+
     while #queue > 0 do
         loopCount = loopCount + 1
-        if loopCount % 1000 == 0 then
-            print("A* loop count: " .. loopCount)
-
-            os.queueEvent("yield")
-            os.pullEvent()
-        end
-
 
         local current = queue:pop()
         local currentKey = current["vector"]:tostring()
 
-        --print("new current: " .. currentKey .. " with weight: " .. current["weight"] .. "direction: " .. current["direction"])
+        if loopCount % 1000 == 0 then
+            print("A* loop count: " .. loopCount)
+            
+            if not reverseCheck and current["weight"] > InitialWeight * 2 then
+                if isReverse then
+                    return false
+                end
+
+                if not nav.aStar("north", dX, dY, dZ, bX, bY, bZ, Obstacles, true) then
+                    print("The destination is unreachable.")
+                    return false
+                end
+
+                reverseCheck = true
+            end
+
+            os.queueEvent("yield")
+            os.pullEvent()
+        end
 
         if currentKey == dKey then
 
             local bestPath = {}
 
             while current do
+                current["weight"] = nil  -- Remove weight from the path
+                current["stepCount"] = nil  -- Remove step count from the path
+                current["turnCount"] = nil  -- Remove turn count from the path
+                
                 table.insert(bestPath, 1, current)
-                currentKey = current.vector:tostring()
+                currentKey = current["vector"]:tostring()
                 current = cameFrom[currentKey]
             end
 
@@ -67,32 +96,47 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
 
         for _, neighborVector in ipairs(neighborVectors) do
             local neighborKey = neighborVector:tostring()
-            if not visited[neighborKey] and not Obstacles[neighborKey] then
-                local toPush = {
-                    vector = neighborVector,
-                    weight = nil,
-                    stepCount = current["stepCount"] + 1,
-                    turnCount = current["turnCount"],
-                    direction = utils.duwsenDirectionVectors[neighborVector:sub(current["vector"]):tostring()]
-                }
-                
-                if toPush["direction"] ~= current["direction"] then
-                    toPush["turnCount"] = toPush["turnCount"] + 1
-                end
-                
-                local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
-                toPush["weight"] = estimatedDistance + toPush["stepCount"] + toPush["turnCount"]
 
-                visited[neighborKey] = true
-                cameFrom[neighborKey] = current
-
-                queue:push(toPush)
+            if visited[neighborKey] then
+                goto continue
             end
+            
+            if Obstacles[neighborKey] and not Obstacles[neighborKey]["flowDirection"] then
+                goto continue
+            end
+            
+            local node = {
+                vector = neighborVector,
+                weight = nil,
+                stepCount = current["stepCount"] + 1,
+                turnCount = current["turnCount"],
+                direction = nav.DirectionCalculation(neighborVector, current["vector"])
+            }
+
+            local upStream = nav.UpstreamCalculation(Obstacles[neighborKey])
+            if node["direction"] == upStream then
+                goto continue
+            end
+            
+            if node["direction"] ~= current["direction"] then
+                node["turnCount"] = node["turnCount"] + 1
+            end
+            
+            local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
+            node["weight"] = estimatedDistance + node["stepCount"] + node["turnCount"]
+
+            visited[neighborKey] = true
+            cameFrom[neighborKey] = current
+
+            queue:push(node)
+            
+            ::continue::
         end
     end
 
     return false
 end
+
 
 --[[
 cameFrom example:

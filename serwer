@@ -63,10 +63,27 @@ server.on('connection', socket => {
         if (message === 'PCConfirm') {
             mainPC = socket;
         }
+
+        if (message.type === 'Journey') {
+            const JourneyPath = message.payload;
+            obstacleMap = {...obstacleMap, ...JourneyPath};
+        }
+
+        if (message.type === 'Journeys end') {
+            const JourneyPath = message.payload;
+            for (const key in JourneyPath) {
+                delete obstacleMap[key];
+            }
+        }
     });
 
     socket.on('close', () => {
         console.log('Turtle disconnected');
-        mainPC.send('')
+        const message = {
+            type: 'TurtleDisconnect',
+            payload: Object.keys(turtleObjects).find(id => turtleObjects[id].socket === socket)
+        };
+
+        mainPC.send(JSON.stringify(message));
     });
 });

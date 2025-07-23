@@ -3,6 +3,15 @@
 local utils = {}
 
 utils.neswDirections = {"north", "east","south", "west"}
+
+function utils.FaceToIndex(face)
+    for index, direction in ipairs(utils.neswDirections) do
+        if direction == face then
+            return index
+        end
+    end
+end
+
 utils.neswudDirectionVectors = {
     ["north"] = vector.new(0, 0, -1), -- north
     ["east"] = vector.new(1, 0, 0),   -- east
