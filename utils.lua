@@ -1,8 +1,25 @@
-local vector
-local fs
-local textutils
+---@diagnostic disable: undefined-global, undefined-field
 
 local utils = {}
+
+utils.neswDirections = {"north", "east","south", "west"}
+utils.neswudDirectionVectors = {
+    ["north"] = vector.new(0, 0, -1), -- north
+    ["east"] = vector.new(1, 0, 0),   -- east
+    ["south"] = vector.new(0, 0, 1),  -- south
+    ["west"] = vector.new(-1, 0, 0),  -- west
+    ["up"] = vector.new(0, 1, 0),     -- up
+    ["down"] = vector.new(0, -1, 0)   -- down
+}
+
+utils.duwsenDirectionVectors = {
+    [vector.new(0, 0, -1):tostring()] = "north",
+    [vector.new(1, 0, 0):tostring()] = "east",
+    [vector.new(0, 0, 1):tostring()] = "south",
+    [vector.new(-1, 0, 0):tostring()] = "west",
+    [vector.new(0, 1, 0):tostring()] = "up",
+    [vector.new(0, -1, 0):tostring()] = "down"
+}
 
 function utils.TableContains(tbl, element)
     for _, v in ipairs(tbl) do

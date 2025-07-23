@@ -1,0 +1,11 @@
+{
+  position = {
+    y = 107,
+    x = 654,
+    z = 955,
+  },
+  faceIndex = 1,
+  face = "north",
+  id = 1,
+  busy = true,
+}

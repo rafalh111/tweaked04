@@ -1,30 +1,7 @@
 local nav = require("nav03")
 local utils = require("utils")
-local vector = require("vector")
-local turtle = require("turtle")
-local rednet
-local textutils
 
 local turtleLib = {}
-
-local neswDirections = {"north", "east","south", "west"}
-local neswudDirectionVectors = {
-    ["north"] = vector.new(0, 0, -1), -- north
-    ["east"] = vector.new(1, 0, 0),   -- east
-    ["south"] = vector.new(0, 0, 1),  -- south
-    ["west"] = vector.new(-1, 0, 0),  -- west
-    ["up"] = vector.new(0, 1, 0),     -- up
-    ["down"] = vector.new(0, -1, 0)   -- down
-}
-
-local duwsenDirectionVectors = {
-    [vector.new(0, 0, -1):tostring()] = "north",
-    [vector.new(1, 0, 0):tostring()] = "east",
-    [vector.new(0, 0, 1):tostring()] = "south",
-    [vector.new(-1, 0, 0):tostring()] = "west",
-    [vector.new(0, 1, 0):tostring()] = "up",
-    [vector.new(0, -1, 0):tostring()] = "down"
-}
 
 function turtleLib.downladMap(ws)
     ws.send("MapRequest")
@@ -49,7 +26,7 @@ function turtleLib.LoadTurtleState(ws)
         local messageToSend = {type = "turtleBorn", payload = TurtleObject}
         ws.send(textutils.serializeJSON(messageToSend))
         local message = ws.receive()
-        message = textutils.unserializeJSON(message)
+        message = textutils.unserializeJSON(ws.receive())
         if message.type == "Completion2" then
             TurtleObject = message.payload
         end
@@ -65,43 +42,49 @@ function turtleLib.Sonar(TurtleObject, Obstacles, InFront, Above, Below, ws)
     local detectedChanges = {}
 
     if InFront then
-        local blockInFrontVectorKey = TurtleObject.position:add(neswudDirectionVectors[TurtleObject.face]):tostring()
+        local blockInFrontVectorKey = TurtleObject.position:add(utils.neswudDirectionVectors[TurtleObject.face]):tostring()
         local blockedForward, dataForward = turtle.inspect()
         detectedChanges[blockInFrontVectorKey] = {blocked = blockedForward, data = dataForward.name}
     end
 
     if Above then
-        local blockAboveVectorKey = TurtleObject.position:add(neswudDirectionVectors["up"]):tostring()
+        local blockAboveVectorKey = TurtleObject.position:add(utils.neswudDirectionVectors["up"]):tostring()
         local blockedUp, dataUp = turtle.inspectUp()
         detectedChanges[blockAboveVectorKey] = {blocked = blockedUp, data = dataUp.name}
     end
 
     if Below then
-        local blockBelowVectorKey = TurtleObject.position:add(neswudDirectionVectors["down"]):tostring()
+        local blockBelowVectorKey = TurtleObject.position:add(utils.neswudDirectionVectors["down"]):tostring()
         local blockedDown, dataDown = turtle.inspectDown()
         detectedChanges[blockBelowVectorKey] = {blocked = blockedDown, data = dataDown.name}
     end
 
-    local message = {type = "MapUpdate", payload = detectedChanges}
-    ws.send(textutils.serializeJSON(message))
+    for vectorKey, inspectVariables in pairs(detectedChanges) do
+        if inspectVariables.blocked and not Obstacles[vectorKey] then
+            Obstacles[vectorKey] = inspectVariables.data;        
+        elseif not inspectVariables.blocked and Obstacles[vectorKey] then
+            Obstacles[vectorKey] = nil
+        end
+    end
+
+    -- local message = {type = "MapUpdate", payload = detectedChanges}
+    -- ws.send(textutils.serializeJSON(message))
 end
 
 function turtleLib.SafeTurn(TurtleObject, Obstacles, direction, ws)
     if direction == "left" then
         turtle.turnLeft()
         TurtleObject.faceIndex = (TurtleObject.faceIndex - 2) % 4 + 1
-        TurtleObject.face = neswDirections[TurtleObject.faceIndex]
+        TurtleObject.face = utils.neswDirections[TurtleObject.faceIndex]
     elseif direction == "right" then
         turtle.turnRight()
         TurtleObject.faceIndex = TurtleObject.faceIndex % 4 + 1
-        TurtleObject.face = neswDirections[TurtleObject.faceIndex]
+        TurtleObject.face = utils.neswDirections[TurtleObject.faceIndex]
     end
 
     turtleLib.Sonar(TurtleObject, Obstacles, true, false, false)
 
     utils.SerializeAndSave(TurtleObject, "turtleLog")
-    local message = {type = "TurtleUpdate", payload = TurtleObject}
-    ws.send(textutils.serializeJSON(message))
 end
 
 function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
@@ -109,21 +92,19 @@ function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
     if direction == "forward" and turtle.forward() then
         success = true
         turtleLib.Sonar(TurtleObject, Obstacles, true, true, true)
-        TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors[TurtleObject.face])
+        TurtleObject.position = TurtleObject.position:add(utils.neswudDirectionVectors[TurtleObject.face])
     elseif direction == "up" and turtle.up() then
         success = true
         turtleLib.Sonar(TurtleObject, Obstacles, true, true, false)
-        TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["up"])
+        TurtleObject.position = TurtleObject.position:add(utils.neswudDirectionVectors["up"])
     elseif direction == "down" and turtle.down() then
         success = true
         turtleLib.Sonar(TurtleObject, Obstacles, true, false, true)
-        TurtleObject.position = TurtleObject.position:add(neswudDirectionVectors["down"])
+        TurtleObject.position = TurtleObject.position:add(utils.neswudDirectionVectors["down"])
     end
     
     if success then
         utils.SerializeAndSave(TurtleObject, "turtleLog")
-        local message = {type = "TurtleUpdate", payload = TurtleObject}
-        ws.send(textutils.serializeJSON(message))
     else
         turtleLib.Sonar(TurtleObject, Obstacles, true, true, true)
     end
@@ -132,7 +113,7 @@ function turtleLib.SafeMove(TurtleObject, Obstacles, direction, ws)
 end
 
 function turtleLib.FaceToIndex(face)
-    for index, direction in ipairs(neswDirections) do
+    for index, direction in ipairs(utils.neswDirections) do
         if direction == face then
             return index
         end
@@ -179,7 +160,7 @@ function turtleLib.MoveToNeighbor(TurtleObject, Obstacles, x, y, z)
         return
     end
     
-    local targetFace = duwsenDirectionVectors[delta:tostring()]
+    local targetFace = utils.duwsenDirectionVectors[delta:tostring()]
 
     if not turtleLib.MoveToDirection(TurtleObject, Obstacles, targetFace) then
         return false
@@ -193,27 +174,33 @@ function turtleLib.Journey(TurtleObject, Obstacles, x, y, z)
     TurtleObject.busy = true
     
     while not TurtleObject.position:equals(destination) do
-        if not Obstacles then
-            rednet.send(TurtleObject.id, "Journey", "MapRequest")
-            local senderID, message, protocol = rednet.receive()
-            if protocol == "MapSupply" then
-                Obstacles = textutils.unserialize(message)
-            end
-        end
+        -- if not Obstacles then
+        --     rednet.send(TurtleObject.id, "Journey", "MapRequest")
+        --     local senderID, message, protocol = rednet.receive()
+        --     if protocol == "MapSupply" then
+        --         Obstacles = textutils.unserialize(message)
+        --     end
+        -- end
 
         local bestPath = nav.aStar(
+            TurtleObject.face,
             TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
-            destination.x, destination.y, destination.z, Obstacles
+            destination.x, destination.y, destination.z,
+            Obstacles
         )
-
+            
         if not bestPath then
             --print("I am trapped :(")
             TurtleObject.busy = false
             return false
         end
 
+        print("Best path found with " .. #bestPath .. " steps.")
+
         for _, step in ipairs(bestPath) do
+            --if not turtleLib.MoveToNeighbor(TurtleObject, Obstacles, step["vector"].x, step["vector"].y, step["vector"].z) then
             if not turtleLib.MoveToDirection(TurtleObject, Obstacles, step["direction"]) then
+                print("Failed to move to direction: " .. step["direction"])
                 break
             end
         end

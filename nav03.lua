@@ -1,6 +1,5 @@
 ---@diagnostic disable: undefined-global, undefined-field
 local utils = require("utils")
-local turtleLib = require("turtleLib")
 
 local nav = {}
 
@@ -29,13 +28,18 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
     local loopCount = 0
     while #queue > 0 do
         loopCount = loopCount + 1
-        if loopCount % 100 == 0 then
+        if loopCount % 1000 == 0 then
+            print("A* loop count: " .. loopCount)
+
             os.queueEvent("yield")
             os.pullEvent()
         end
 
+
         local current = queue:pop()
         local currentKey = current["vector"]:tostring()
+
+        --print("new current: " .. currentKey .. " with weight: " .. current["weight"] .. "direction: " .. current["direction"])
 
         if currentKey == dKey then
 
@@ -69,7 +73,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles)
                     weight = nil,
                     stepCount = current["stepCount"] + 1,
                     turnCount = current["turnCount"],
-                    direction = turtleLib.duwsenDirectionVectors.neighborVector:sub(current["vector"])
+                    direction = utils.duwsenDirectionVectors[neighborVector:sub(current["vector"]):tostring()]
                 }
                 
                 if toPush["direction"] ~= current["direction"] then

@@ -1,10 +1,7 @@
----@diagnostic disable: undefined-field
+---@diagnostic disable: undefined-global, undefined-field
 local turtleLib = require("turtleLib")
 local utils = require("utils")
 local nav = require("nav03")
-local rednet
-local textutils
-local http
 
 
 local ws, err = http.websocket("ws://your.server.ip:8080")
