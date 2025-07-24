@@ -1,10 +1,14 @@
+import { log } from 'console';
+
 const WebSocket = require('ws');
 const fs = require('fs')
+const path = require('path');
 
 const server = new WebSocket.Server({ port: 8080 });
 const turtleObjects = {};
 const obstacleMap = {};
-let mainPC = null;
+let PCs = [];
+const computercraftDirectory = './computercraft';
 
 if (fs.existsSync('obstacleMap.json')) {
     try {
@@ -15,12 +19,32 @@ if (fs.existsSync('obstacleMap.json')) {
     }
 }
 
+function findTurtleLogs(directory) {
+    let newTurtleObjects = {};
+
+    const files = fs.readdirSync(directory, { withFileTypes: true });
+
+    files.forEach(file => {
+        const fullPath = path.join(directory, file.name);
+
+        if (file.isDirectory()) {
+            Object.assign(newTurtleObjects, findTurtleLogs(fullPath));
+        } else if (file.name.startsWith('TurtleLog')) {
+            try {
+                const fileContent = fs.readFileSync(fullPath, 'utf8');
+                Object.assign(newTurtleObjects, JSON.parse(fileContent));
+            } catch (err) {
+                console.error(`Failed to parse ${fullPath}:`, err.message);
+            }
+        }
+    });
+
+    return newTurtleObjects;
+}
+
 server.on('connection', socket => {
     console.log('New connection established');
-    
-    if (!mainPC) {
-        socket.send('PC?');
-    }
+    socket.send('PC?');
 
     socket.on('message', data => {
         let message = JSON.parse(data);
@@ -54,14 +78,19 @@ server.on('connection', socket => {
             turtleObjects[message.payload.id] = message.payload;
         }
 
-        if (message.type === 'TurtleBorn') {
-            const turtleObject = {socket: socket, ...message.payload};
-            socket.send(JSON.stringify({type: 'Completion2', payload: turtleObject}));
-            turtleObjects[message.payload.id] = turtleObject;
-        }
+        // if (message.type === 'TurtleBorn') {
+        //     const turtleObject = {socket: socket, ...message.payload};
+        //     const message = {
+        //         type: 'Completion2',
+        //         payload: turtleObject
+        //     };
+        // 
+        //     socket.send(JSON.stringify(message));
+        //     turtleObjects[message.payload.id] = turtleObject;
+        // }
 
         if (message === 'PCConfirm') {
-            mainPC = socket;
+            PCs.push(socket);
         }
 
         if (message.type === 'Journey') {
@@ -74,6 +103,16 @@ server.on('connection', socket => {
             for (const key in JourneyPath) {
                 delete obstacleMap[key];
             }
+        }
+
+        if (message.type === 'TurtleScan') {
+            turtleObjects = findTurtleLogs(computercraftDirectory);
+            const message = {
+                type: 'TurtleScanResult',
+                payload: turtleObjects
+            };
+
+            socket.send(JSON.stringify(message));
         }
     });
 

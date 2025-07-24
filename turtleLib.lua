@@ -24,14 +24,13 @@ function turtleLib.LoadTurtleState(ws)
             TurtleObject = message
         end
 
-        local messageToSend = {type = "turtleBorn", payload = TurtleObject}
-        ws.send(textutils.serializeJSON(messageToSend))
-        local message = ws.receive()
-        message = textutils.unserializeJSON(ws.receive())
-        if message.type == "Completion2" then
-            TurtleObject = message.payload
-        end
-        
+        -- local messageToSend = {type = "turtleBorn", payload = TurtleObject}
+        -- ws.send(textutils.serializeJSON(messageToSend))
+        -- local message = ws.receive()
+        -- message = textutils.unserializeJSON(ws.receive())
+        -- if message.type == "Completion2" then
+        --     TurtleObject = message.payload
+        -- end
 
         utils.SerializeAndSave(TurtleObject, "turtleLog")
     end
