@@ -3,18 +3,42 @@ local utils = require("utils")
 
 local nav = {}
 
-function nav.UpstreamCalculation(obstacle)
-    local directionIndex = utils.FaceToIndex(obstacle["flowDirection"])
-    local upstreamIndex = (directionIndex + 2) % 4
+function nav.FlowCalculation(obstacle, neighbor)
+    local neighborDir = neighbor["direction"]
+    local flowDir = obstacle["flowDirection"]
 
-    return utils.neswDirections[upstreamIndex]
+    -- Perfect alignment with flow
+    if neighborDir == flowDir then
+        return "PathFlow"
+    end
+
+    if neighborDir == "up" or neighborDir == "down" or 
+       flowDir == "up" or flowDir == "down" then   
+
+        if (neighborDir == "up" and flowDir == "down") or
+        (neighborDir == "down" and flowDir == "up") then
+            return "AgainstFlow"
+        end
+    else
+        -- Horizontal flow conflict
+        local obstacleFlowIndex = utils.FaceToIndex(flowDir)
+        local neighborFlowIndex = utils.FaceToIndex(neighborDir)
+        if obstacleFlowIndex and neighborFlowIndex then
+            local diff = (obstacleFlowIndex - neighborFlowIndex) % 4
+            if diff == 2 then
+                return "AgainstFlow"
+            end
+        end
+    end
+
+    return "MergeFromSide"
 end
 
 function nav.DirectionCalculation(neighborVector, currentVector)
     return utils.duwsenDirectionVectors[neighborVector:sub(currentVector):tostring()]
 end
 
-function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
+function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse, turtleID)
     local b = vector.new(bX, bY, bZ)
     local d = vector.new(dX, dY, dZ)
     local dKey = d:tostring()
@@ -33,7 +57,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
 
     setmetatable(queue, utils.Heap)
 
-    local cameFrom = {}  -- key: position string, value: parent node
+    local cameFrom = {}  -- key: position string, value: parent neighbor
     local visited = {[b:tostring()] = true}
 
     local loopCount = 0
@@ -67,13 +91,18 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
         end
 
         if currentKey == dKey then
-
             local bestPath = {}
 
             while current do
                 current["weight"] = nil  -- Remove weight from the path
                 current["stepCount"] = nil  -- Remove step count from the path
                 current["turnCount"] = nil  -- Remove turn count from the path
+                --current["flowDirection"] = current["direction"]  -- Keep the flow direction for the path
+                
+                if turtleID then
+                    current["turtles"] = current["turtles"] or {}
+                    table.insert(current["turtles"], turtleID)
+                end
                 
                 table.insert(bestPath, 1, current)
                 currentKey = current["vector"]:tostring()
@@ -97,38 +126,46 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
         for _, neighborVector in ipairs(neighborVectors) do
             local neighborKey = neighborVector:tostring()
 
+            -- skip if visited or an obstacle
             if visited[neighborKey] then
+                goto continue  
+            elseif Obstacles[neighborKey] and not Obstacles[neighborKey]["flowDirection"] then
                 goto continue
             end
             
-            if Obstacles[neighborKey] and not Obstacles[neighborKey]["flowDirection"] then
-                goto continue
-            end
-            
-            local node = {
+            local neighbor = {
                 vector = neighborVector,
-                weight = nil,
-                stepCount = current["stepCount"] + 1,
                 turnCount = current["turnCount"],
+                stepCount = current["stepCount"] + 1,
                 direction = nav.DirectionCalculation(neighborVector, current["vector"])
             }
 
-            local upStream = nav.UpstreamCalculation(Obstacles[neighborKey])
-            if node["direction"] == upStream then
-                goto continue
+            -- flow checks
+            local flowResistance = 0
+            if Obstacles[neighborKey] and Obstacles[neighborKey]["flowDirection"] then
+                local flow = nav.FlowCalculation(Obstacles[neighborKey], neighbor)
+                if flow == "AgainstFlow" then
+                    goto continue
+                elseif flow == "MergeFromSide" then
+                    flowResistance = flowResistance + 1
+                elseif flow == "PathFlow" then
+                    flowResistance = flowResistance - 1
+                end
             end
-            
-            if node["direction"] ~= current["direction"] then
-                node["turnCount"] = node["turnCount"] + 1
+
+            -- turn penalty
+            local turnCount = neighbor["turnCount"]
+            if current["direction"] ~= neighbor["direction"] then
+                turnCount = turnCount + 1
             end
-            
+
+            -- final weight
             local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
-            node["weight"] = estimatedDistance + node["stepCount"] + node["turnCount"]
+            neighbor["weight"] = estimatedDistance + neighbor["stepCount"] + turnCount + flowResistance
 
             visited[neighborKey] = true
             cameFrom[neighborKey] = current
-
-            queue:push(node)
+            queue:push(neighbor)
             
             ::continue::
         end
@@ -136,54 +173,12 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse)
 
     return false
 end
+-- bestPath example look like this: 
+-- {
+--     {vector = vector.new(1, 0, 0), weight = 3},
+--     {vector = vector.new(2, 0, 0), weight = 2},
+--     {vector = vector.new(3, 0, 0), weight = 1},
+--     {vector = vector.new(4, 0, 0), weight = 0}
+-- }
 
-
---[[
-cameFrom example:
-{
-    ["(1, 2, 3)"] = { vector = vector.new(1,1,3), ... },
-    ["(2, 2, 3)"] = { vector = vector.new(1,2,3), ... },
-    ...
-}
-]]
-
---[[
-queue example (as a heap):
-{
-    {
-        vector = vector.new(1,2,3),
-        weight = 7,
-        stepCount = 3,
-        turnCount = 1
-    },
-    {
-        vector = vector.new(2,2,3),
-        weight = 8,
-        stepCount = 4,
-        turnCount = 1
-    },
-    ...
-}
-]]
-
---[[
-visited example:
-{
-    ["(1, 2, 3)"] = true,
-    ["(2, 2, 3)"] = true,
-    ...
-}
-]]
-
---[[
-bestPath example:
-{
-    { vector = vector.new(1,1,3), ... },
-    { vector = vector.new(1,2,3), ... },
-    { vector = vector.new(2,2,3), ... },
-    ...
-}
-]]
-
---testest
 return nav

@@ -24,14 +24,6 @@ function turtleLib.LoadTurtleState(ws)
             TurtleObject = message
         end
 
-        -- local messageToSend = {type = "turtleBorn", payload = TurtleObject}
-        -- ws.send(textutils.serializeJSON(messageToSend))
-        -- local message = ws.receive()
-        -- message = textutils.unserializeJSON(ws.receive())
-        -- if message.type == "Completion2" then
-        --     TurtleObject = message.payload
-        -- end
-
         utils.SerializeAndSave(TurtleObject, "turtleLog")
     end
 
@@ -149,7 +141,7 @@ function turtleLib.MoveToNeighbor(TurtleObject, Obstacles, x, y, z)
     local delta = targetV:sub(TurtleObject.position)
     
     if delta:length() ~= 1 then
-        return
+        return false
     end
     
     local targetFace = utils.duwsenDirectionVectors[delta:tostring()]
@@ -174,15 +166,16 @@ function turtleLib.Journey(TurtleObject, Obstacles, x, y, z, ws)
         )
             
         if not bestPath then
-            --print("I am trapped :(")
+            print("I am trapped :(")
             TurtleObject.busy = false
             return false
         end
 
         print("Best path found with " .. #bestPath .. " steps.")
+
         local messageToSend = {
             type = "Journey",
-            payload = bestPath,
+            payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
         }
 
         ws.send(textutils.serializeJSON(messageToSend))

@@ -78,31 +78,55 @@ server.on('connection', socket => {
             turtleObjects[message.payload.id] = message.payload;
         }
 
-        // if (message.type === 'TurtleBorn') {
-        //     const turtleObject = {socket: socket, ...message.payload};
-        //     const message = {
-        //         type: 'Completion2',
-        //         payload: turtleObject
-        //     };
-        // 
-        //     socket.send(JSON.stringify(message));
-        //     turtleObjects[message.payload.id] = turtleObject;
-        // }
-
-        if (message === 'PCConfirm') {
+        if (message.type === 'PCConfirm') {
             PCs.push(socket);
         }
 
         if (message.type === 'Journey') {
-            const JourneyPath = message.payload;
-            obstacleMap = {...obstacleMap, ...JourneyPath};
+            const journeyPath = message.payload.journeyPath;
+            const turtleID = message.payload.turtleID;
+
+            for (const step of journeyPath) {
+                const key = step.vector; // Assuming vector is a string like "x,y,z"
+                
+                if (!obstacleMap[key]) {
+                    obstacleMap[key] = {};
+                }
+
+                if (!obstacleMap[key].turtles) {
+                    obstacleMap[key].turtles = [];
+                }
+
+                if (!obstacleMap[key].turtles.includes(turtleID)) {
+                    obstacleMap[key].turtles.push(turtleID);
+                }
+            }
+
+            fs.writeFileSync('obstacleMap.json', JSON.stringify(obstacleMap, null, 2));
         }
 
+
         if (message.type === 'Journeys end') {
-            const JourneyPath = message.payload;
-            for (const key in JourneyPath) {
-                delete obstacleMap[key];
+            const journeyPath = message.payload.journeyPath;
+            const turtleID = message.payload.turtleID;
+
+            for (const step of journeyPath) {
+                const key = step.vector;
+
+                if (obstacleMap[key] && obstacleMap[key].turtles) {
+                    obstacleMap[key].turtles = obstacleMap[key].turtles.filter(id => id !== turtleID);
+
+                    if (obstacleMap[key].turtles.length === 0) {
+                        delete obstacleMap[key].turtles;
+
+                        if (Object.keys(obstacleMap[key]).length === 0) {
+                            delete obstacleMap[key];
+                        }
+                    }
+                }
             }
+
+            fs.writeFileSync('obstacleMap.json', JSON.stringify(obstacleMap, null, 2));
         }
 
         if (message.type === 'TurtleScan') {
@@ -115,9 +139,15 @@ server.on('connection', socket => {
             socket.send(JSON.stringify(message));
         }
     });
-
+    
     socket.on('close', () => {
+        if (PCs.length === 0) {
+            return;
+        }
+
         console.log('Turtle disconnected');
+
+        foreach 
         const message = {
             type: 'TurtleDisconnect',
             payload: Object.keys(turtleObjects).find(id => turtleObjects[id].socket === socket)
