@@ -38,13 +38,13 @@ function nav.DirectionCalculation(neighborVector, currentVector)
     return utils.duwsenDirectionVectors[neighborVector:sub(currentVector):tostring()]
 end
 
-function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse, turtleID)
+function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turtleID)
     local b = vector.new(bX, bY, bZ)
     local d = vector.new(dX, dY, dZ)
     local dKey = d:tostring()
     
-    if not Obstacles then
-        Obstacles = {}
+    if not WorldMap then
+        WorldMap = {}
     end
 
     local queue = {{
@@ -78,7 +78,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse, tur
                     return false
                 end
 
-                if not nav.aStar("north", dX, dY, dZ, bX, bY, bZ, Obstacles, true) then
+                if not nav.aStar("north", dX, dY, dZ, bX, bY, bZ, WorldMap, true) then
                     print("The destination is unreachable.")
                     return false
                 end
@@ -129,7 +129,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse, tur
             -- skip if visited or an obstacle
             if visited[neighborKey] then
                 goto continue  
-            elseif Obstacles[neighborKey] and not Obstacles[neighborKey]["flowDirection"] then
+            elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["flowDirection"] then
                 goto continue
             end
             
@@ -142,8 +142,8 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, Obstacles, isReverse, tur
 
             -- flow checks
             local flowResistance = 0
-            if Obstacles[neighborKey] and Obstacles[neighborKey]["flowDirection"] then
-                local flow = nav.FlowCalculation(Obstacles[neighborKey], neighbor)
+            if WorldMap[neighborKey] and WorldMap[neighborKey]["flowDirection"] then
+                local flow = nav.FlowCalculation(WorldMap[neighborKey], neighbor)
                 if flow == "AgainstFlow" then
                     goto continue
                 elseif flow == "MergeFromSide" then

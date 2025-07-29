@@ -7,10 +7,8 @@ local os
 local vector = require("vector")
 local http = require("http")
 
-local Obstacles = utils.ReadAndUnserialize("map") or {}
-local ws, err = http.websocket("ws://your.server.ip:8080")
+local ws, err = http.websocket("ws://127.0.0.1:8080")
 -- local updateQueue = {}
-local Turtles = {}
 
 while true do
     local event, p1, p2, p3 = os.pullEvent()
@@ -38,22 +36,4 @@ while true do
             rednet.send(senderID, textutils.serialize(TurtleObject), "Completion1")
         end
     end
-end
-
-function Scan()
-    for id, turtle in pairs(Turtles) do
-        if not turtle.busy then
-            rednet.send(turtle.id, "Scan", "Scan")
-            local senderID, message, protocol = rednet.receive()
-
-            if protocol == "ScanResponse" then
-                local turtleData = textutils.unserialize(message)
-                Turtles[turtleData.id] = turtleData
-            end
-        end
-    end
-end
-
-function AssignBestTurtle()
-
 end

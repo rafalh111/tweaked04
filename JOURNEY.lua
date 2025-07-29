@@ -11,10 +11,13 @@ else
     return
 end
 
+local ws = http.websocket("ws://your.server.ip:8080")
+
 local args = { ... }
-local Obstacles = {}
+local WorldMap = turtleLib.downloadMap(ws)
+
 
 print ("I'm facing: " .. TurtleObject.face)
 print ("My position is: " .. TurtleObject.position:tostring())
 
-turtleLib.Journey(TurtleObject, Obstacles, args[1], args[2], args[3])
+turtleLib.Journey(TurtleObject, WorldMap, args[1], args[2], args[3])

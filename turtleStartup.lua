@@ -4,7 +4,7 @@ local utils = require("utils")
 local nav = require("nav03")
 
 
-local ws, err = http.websocket("ws://your.server.ip:8080")
+local ws, err = http.websocket("ws://127.0.0.1:8080")
 
 local TurtleObject = turtleLib.LoadTurtleState(ws)
 
@@ -12,7 +12,7 @@ while true do
     local event, p1, p2, p3 = os.pullEvent()
 
     if event == "websocket_message" then
-        local message = textutils.unserializeJSON(p1)
+        local message = textutils.unserializeJSON(p2)
 
         if message.type == "Completion" then
             TurtleObject = message.payload
