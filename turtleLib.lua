@@ -4,11 +4,6 @@ local utils = require("utils")
 
 local turtleLib = {}
 
-function turtleLib.downladMap(ws)
-    ws.send("MapRequest")
-    return ws.receive()
-end
-
 function turtleLib.LoadTurtleState(ws)
     local TurtleObject = {}
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
@@ -162,24 +157,80 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z)
     return true
 end
 
-local function walkPath(TurtleObject, WorldMap, x, y, z, ws)
-    local destination = vector.new(x, y, z)
+local function mergeHandle(step)
+    repeat
+        ws.send(textutils.serializeJSON({
+            type = "TurtleScan",
+            payload = step["turtles"]
+        }))
+
+        local turtlesOnPath = utils.listenForWsMessage("TurtleScanResult")
+        if turtlesOnPath == {} or turtlesOnPath == nil then return end
+        local mergePossible = true
+        local timeToSleep = 0
+
+        for _, colliderTurtle in ipairs(turtlesOnPath) do
+            local intersectionIndex
+            for stepIndex, colliderTurtleStep in ipairs(colliderTurtle.bestPath) do
+                if step["vector"] == colliderTurtleStep then
+                    intersectionIndex = stepIndex
+                    mergePossible = false
+                end
+            end
+            
+            for i = intersectionIndex, intersectionIndex - 3, -1 do
+                if colliderTurtle["position"] == colliderTurtle["bestPath"][i]["vector"] then
+                    timeToSleep = intersectionIndex + 1 - i
+                end
+            end
+        end
+
+        os.sleep(timeToSleep)
+    until not mergePossible
+end
+
+local function handleMovement(TurtleObject, WorldMap, stepDirection)
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, stepDirection) then
+        print("Failed to move to direction: " .. step["direction"])
+        
+        for _, passingTurtleID in ipairs(step["turtles"]) do
+            ws.send(textutils.serializeJSON({
+                type = "PassThrough",
+                receiver = passingTurtleID,
+                newHeader = "obstacle on your way",
+                payload = {}
+            }))
+        end
+
+        return
+    end
+end
+
+local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
     TurtleObject.busy = true
     
-    while not TurtleObject.position:equals(destination) do
+    repeat
         local bestPath = nav.aStar(
             TurtleObject.face,
             TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
             destination.x, destination.y, destination.z,
             WorldMap
         )
-            
+        
         if not bestPath then
             print("I am trapped :(")
             TurtleObject.busy = false
             return false
         end
+        
+        local destination
 
+        if not doAtTheEnd == "go" then
+            destination = bestPath[#bestPath - 1]["vector"]
+        else
+            destination = vector.new(x, y, z)
+        end
+        
         print("Best path found with " .. #bestPath .. " steps.")
 
         ws.send(textutils.serializeJSON({
@@ -194,52 +245,36 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, ws)
                 break
             end
 
-            if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step["direction"]) then
-                print("Failed to move to direction: " .. step["direction"])
-
-
-                for _, passingTurtleID in ipairs(step["turtles"]) do
-                    ws.send(textutils.serializeJSON({
-                        type = "PassThrough",
-                        receiver = passingTurtleID,
-                        newHeader = "obstacle on your way",
-                        payload = {}
-                    }))
+            if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
+                if step["special"]["mergeFromSide"] then
+                    mergeHandle(step)
                 end
 
-                break
-            end
+                success = handleMovement(TurtleObject, WorldMap, step["direction"])
+            elseif 
+
+            then
+
+
         end
 
         ws.send(textutils.serializeJSON({
             type = "Journeys End",
             payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
         }))
-    end
+    until TurtleObject
 
     TurtleObject.busy = false
     return true
 end
 
-local function websocketListen()
-    while true do
-        local event, p1, p2, p3 = os.pullEvent()
-
-        if event ~= "websocket_message" then
-            return
-        end
-        
-        local message = textutils.unserializeJSON(p2)
-
-        if not message.type == "obstacle on your way" then
-            return
-        end
-
+local function checkForInterruptions()
+    if utils.listenForWsMessage("obstacle on your way") then
         InterruptFromMessage = true
     end
 end
 
-function turtleLib.Journey(TurtleObject, WorldMap, x, y, z, ws)
+function turtleLib.Journey(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
     InterruptFromMessage = false
     parallel.waitForAny(
         function()
@@ -247,9 +282,11 @@ function turtleLib.Journey(TurtleObject, WorldMap, x, y, z, ws)
         end,
 
         function()
-            websocketListen()
+            checkForInterruptions()
         end
     )
 end
+
+
 
 return turtleLib

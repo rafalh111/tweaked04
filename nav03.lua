@@ -109,7 +109,8 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
                 current = cameFrom[currentKey]
             end
 
-            table.remove(bestPath, 1)   
+            table.remove(bestPath, 1)
+            bestPath[#bestPath]["special"]["lastBlock"] = true
 
             return bestPath
         end
@@ -148,6 +149,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
                     goto continue
                 elseif flow == "MergeFromSide" then
                     flowResistance = flowResistance + 1
+                    neighbor["special"] = {mergeFromSide = true}
                 elseif flow == "PathFlow" then
                     flowResistance = flowResistance - 1
                 end
@@ -156,6 +158,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
             -- turn penalty
             local turnCount = neighbor["turnCount"]
             if current["direction"] ~= neighbor["direction"] then
+                neighbor["turn"] = true
                 turnCount = turnCount + 1
             end
 

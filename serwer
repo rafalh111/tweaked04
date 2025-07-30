@@ -19,28 +19,35 @@ if (fs.existsSync('WorldMap.json')) {
     }
 }
 
-function findTurtleLogs(directory) {
-    let newTurtleObjects = {};
+function JustNumber(parsedName) {
+  return /^[0-9]+$/.test(parsedName);
+}
+
+function findTurtleLogs(directory, IDs) {
+    let FoundTurtleObjects = {};
 
     const files = fs.readdirSync(directory, { withFileTypes: true });
 
     files.forEach(file => {
         const fullPath = path.join(directory, file.name);
+        const parsedName = path.parse(file.name).name;
 
         if (file.isDirectory()) {
-            Object.assign(newTurtleObjects, findTurtleLogs(fullPath));
+            if (!IDs || IDs.includes(parsedName) || !JustNumber(parsedName)) {
+                Object.assign(FoundTurtleObjects, findTurtleLogs(fullPath, IDs));
+            }
         } else if (file.name.startsWith('TurtleLog')) {
             try {
                 const fileContent = fs.readFileSync(fullPath, 'utf8');
-                Object.assign(newTurtleObjects, JSON.parse(fileContent));
+                Object.assign(FoundTurtleObjects, JSON.parse(fileContent));
             } catch (err) {
                 console.error(`Failed to parse ${fullPath}:`, err.message);
-            }
-        }
-    });
+            }    
+        }    
+    });    
 
-    return newTurtleObjects;
-}
+    return FoundTurtleObjects;
+}    
 
 server.on('connection', socket => {
     console.log('New connection established');
@@ -83,7 +90,8 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'MapRequest') {
-          socket.send(JSON.stringify(WorldMap));
+            message.type = 'MapSupply'
+            socket.send(JSON.stringify(WorldMap));
         }
 
         if (message.type === 'PCConfirm') {
@@ -137,10 +145,17 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'TurtleScan') {
-            turtleObjects = findTurtleLogs(computercraftDirectory);
+            if (message.payload) {
+                const { IDs } = message.payload;
+                FoundTurtleObjects = findTurtleLogs(computercraftDirectory, IDs);
+            }
+            else {
+                FoundTurtleObjects = findTurtleLogs(computercraftDirectory);
+            }
+            
             const message = {
                 type: 'TurtleScanResult',
-                payload: turtleObjects
+                payload: FoundTurtleObjects
             };
 
             socket.send(JSON.stringify(message));

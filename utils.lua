@@ -30,6 +30,19 @@ utils.duwsenDirectionVectors = {
     [vector.new(0, -1, 0):tostring()] = "down"
 }
 
+function utils.listenForWsMessage(searchedFor)
+    while true do
+        local event, p1, p2, p3 = os.pullEvent()
+        if event == "websocket_message" then
+            local message = textutils.unserializeJSON(p2)
+
+            if message.type == searchedFor then
+                return message
+            end
+        end
+    end 
+end
+
 function utils.TableContains(tbl, element)
     for _, v in ipairs(tbl) do
         if utils.CompareVectors(v, element) then
