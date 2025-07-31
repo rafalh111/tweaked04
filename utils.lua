@@ -40,7 +40,7 @@ function utils.listenForWsMessage(searchedFor)
                 return message
             end
         end
-    end 
+    end
 end
 
 function utils.TableContains(tbl, element)

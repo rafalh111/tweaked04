@@ -83,7 +83,7 @@ function turtleLib.SafeTurn(TurtleObject, WorldMap, direction, ws)
     utils.SerializeAndSave(TurtleObject, "turtleLog")
 end
 
-function turtleLib.SafeMove(TurtleObject, WorldMap, direction, ws)
+function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
     local success = false
     if direction == "forward" and turtle.forward() then
         success = true
@@ -100,6 +100,10 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, ws)
     end
     
     if success then
+        if i then
+            TurtleObject["journeyStepIndex"] = i
+        end
+
         utils.SerializeAndSave(TurtleObject, "turtleLog")
     else
         turtleLib.Sonar(TurtleObject, WorldMap, true, true, true)
@@ -108,13 +112,13 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, ws)
     return success
 end
 
-function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace)
+function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i)
     local success
     
     if targetFace == "up" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "up")
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "up", i)
     elseif targetFace == "down" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "down")
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "down", i)
     else
         local diff = (utils.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
         
@@ -134,7 +138,7 @@ function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace)
             end
         end
         
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "forward")
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "forward", i)
     end
 
     return success
@@ -150,47 +154,68 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z)
     
     local targetFace = utils.duwsenDirectionVectors[delta:tostring()]
 
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace) then
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i) then
         return false
     end
 
     return true
 end
 
-local function mergeHandle(step)
+local function mergeHandle(step, turtleObject, i)
+    local companionIDs = turtleObject["bestPath"][i - 1]["turtles"]
+
     repeat
         ws.send(textutils.serializeJSON({
             type = "TurtleScan",
             payload = step["turtles"]
         }))
+        
+        local intercectioners = utils.listenForWsMessage("TurtleScanResult")
 
-        local turtlesOnPath = utils.listenForWsMessage("TurtleScanResult")
-        if turtlesOnPath == {} or turtlesOnPath == nil then return end
-        local mergePossible = true
-        local timeToSleep = 0
-
-        for _, colliderTurtle in ipairs(turtlesOnPath) do
-            local intersectionIndex
-            for stepIndex, colliderTurtleStep in ipairs(colliderTurtle.bestPath) do
-                if step["vector"] == colliderTurtleStep then
-                    intersectionIndex = stepIndex
-                    mergePossible = false
+        if #intercectioners == 0 then 
+            return
+        end
+        
+        local problematicTurtles = {}
+        for _, suspect in ipairs(intercectioners) do
+            local collider = true
+            for _, companionID in ipairs(companionIDs) do
+                if suspect["id"] == companionID then
+                    collider = false
                 end
             end
-            
-            for i = intersectionIndex, intersectionIndex - 3, -1 do
-                if colliderTurtle["position"] == colliderTurtle["bestPath"][i]["vector"] then
-                    timeToSleep = intersectionIndex + 1 - i
+
+            if collider == true then
+                table.insert(problematicTurtles, suspect)
+            end
+        end
+        
+        if #problematicTurtles == 0 then
+            return
+        end
+        
+        local mergePossible = true
+        local highestDiff = 0
+        for _, problematicTurtle in ipairs(problematicTurtles) do
+            for intersectionIndex, problematicStep in ipairs(problematicTurtle["bestPath"]) do
+                if problematicStep["vector"] == step["vector"] then
+                    local diff = intersectionIndex - problematicTurtle["journeyStepIndex"]
+                    if diff <= 3 and diff > highestDiff then                   
+                        highestDiff = diff
+                        mergePossible = false
+                    end
                 end
             end
         end
-
-        os.sleep(timeToSleep)
+        
+        if not mergePossible then
+            os.sleep(highestDiff)
+        end
     until not mergePossible
 end
 
-local function handleMovement(TurtleObject, WorldMap, stepDirection)
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, stepDirection) then
+local function handleMovement(TurtleObject, WorldMap, stepDirection, i)
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, stepDirection, i) then
         print("Failed to move to direction: " .. step["direction"])
         
         for _, passingTurtleID in ipairs(step["turtles"]) do
@@ -198,11 +223,11 @@ local function handleMovement(TurtleObject, WorldMap, stepDirection)
                 type = "PassThrough",
                 receiver = passingTurtleID,
                 newHeader = "obstacle on your way",
-                payload = {}
+                payload = { roadBlock = TurtleObject.position:add(utils.neswudDirectionVectors[stepDirection]) }
             }))
         end
 
-        return
+        return false
     end
 end
 
@@ -219,18 +244,22 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
         
         if not bestPath then
             print("I am trapped :(")
+            TurtleObject["journeyStepIndex"] = nil
+            TurtleObject["journeyPath"] = nil
             TurtleObject.busy = false
             return false
         end
         
+        TurtleObject["journeyStepIndex"] = i
         local destination
-
-        if not doAtTheEnd == "go" then
+        if not doAtTheEnd or doAtTheEnd ~= "go" then
             destination = bestPath[#bestPath - 1]["vector"]
         else
             destination = vector.new(x, y, z)
         end
         
+        TurtleObject['journeyPath'] = bestPath
+
         print("Best path found with " .. #bestPath .. " steps.")
 
         ws.send(textutils.serializeJSON({
@@ -238,7 +267,7 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
             payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
         }))
 
-        for _, step in ipairs(bestPath) do
+        for i, step in ipairs(bestPath) do
             if InterruptFromMessage then
                 print("Path interrupted by websocket message, recalculating...")
                 InterruptFromMessage = false
@@ -247,30 +276,38 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
 
             if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
                 if step["special"]["mergeFromSide"] then
-                    mergeHandle(step)
+                    mergeHandle(step, bestPath, i)
                 end
 
-                success = handleMovement(TurtleObject, WorldMap, step["direction"])
-            elseif 
-
-            then
+                handleMovement(TurtleObject, WorldMap, step["direction"], i)
+            end
 
 
         end
+
+        TurtleObject["journeyStepIndex"] = nil
+        TurtleObject["journeyPath"] = nil
 
         ws.send(textutils.serializeJSON({
             type = "Journeys End",
             payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
         }))
-    until TurtleObject
+    until TurtleObject.position == destination
 
-    TurtleObject.busy = false
+    TurtleObject["busy"] = false
     return true
 end
 
-local function checkForInterruptions()
-    if utils.listenForWsMessage("obstacle on your way") then
-        InterruptFromMessage = true
+local function checkForInterruptions(TurtleObject)
+    while true do
+        local message = utils.listenForWsMessage("obstacle on your way")
+
+        for i = TurtleObject["journeyStepIndex"] + 1, #TurtleObject["bestPath"] do
+            if TurtleObject["bestPath"][i]:tostring() == message["payload"]["roadBlock"]:tostring() then
+                InterruptFromMessage = true
+                break
+            end
+        end
     end
 end
 
@@ -282,11 +319,9 @@ function turtleLib.Journey(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
         end,
 
         function()
-            checkForInterruptions()
+            checkForInterruptions(TurtleObject)
         end
     )
 end
-
-
 
 return turtleLib
