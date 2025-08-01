@@ -144,7 +144,7 @@ function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i)
     return success
 end
 
-function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z)
+function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i)
     local targetV = vector.new(x, y, z)
     local delta = targetV:sub(TurtleObject.position)
     
@@ -161,8 +161,8 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z)
     return true
 end
 
-local function mergeHandle(step, turtleObject, i)
-    local companionIDs = turtleObject["bestPath"][i - 1]["turtles"]
+local function mergeHandle(step, turtleObject, i, ws)
+    local companionIDs = turtleObject["journeyPath"][i - 1]["turtles"]
 
     repeat
         ws.send(textutils.serializeJSON({
@@ -214,8 +214,8 @@ local function mergeHandle(step, turtleObject, i)
     until not mergePossible
 end
 
-local function handleMovement(TurtleObject, WorldMap, stepDirection, i)
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, stepDirection, i) then
+local function handleMovement(TurtleObject, WorldMap, step, i, ws)
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i) then
         print("Failed to move to direction: " .. step["direction"])
         
         for _, passingTurtleID in ipairs(step["turtles"]) do
@@ -223,7 +223,7 @@ local function handleMovement(TurtleObject, WorldMap, stepDirection, i)
                 type = "PassThrough",
                 receiver = passingTurtleID,
                 newHeader = "obstacle on your way",
-                payload = { roadBlock = TurtleObject.position:add(utils.neswudDirectionVectors[stepDirection]) }
+                payload = { roadBlock = TurtleObject.position:add(utils.neswudDirectionVectors[step["direction"]]) }
             }))
         end
 
@@ -231,16 +231,10 @@ local function handleMovement(TurtleObject, WorldMap, stepDirection, i)
     end
 end
 
-local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
+local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws)
     TurtleObject.busy = true
-    
     repeat
-        local bestPath = nav.aStar(
-            TurtleObject.face,
-            TurtleObject.position.x, TurtleObject.position.y, TurtleObject.position.z,
-            destination.x, destination.y, destination.z,
-            WorldMap
-        )
+        local bestPath = nav.aStar(TurtleObject.face, TurtleObject.position, destination, WorldMap)
         
         if not bestPath then
             print("I am trapped :(")
@@ -251,11 +245,9 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
         end
         
         TurtleObject["journeyStepIndex"] = i
-        local destination
+
         if not doAtTheEnd or doAtTheEnd ~= "go" then
             destination = bestPath[#bestPath - 1]["vector"]
-        else
-            destination = vector.new(x, y, z)
         end
         
         TurtleObject['journeyPath'] = bestPath
@@ -276,10 +268,10 @@ local function walkPath(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
 
             if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
                 if step["special"]["mergeFromSide"] then
-                    mergeHandle(step, bestPath, i)
+                    mergeHandle(step, bestPath, i, ws)
                 end
 
-                handleMovement(TurtleObject, WorldMap, step["direction"], i)
+                handleMovement(TurtleObject, WorldMap, step["direction"], i, ws)
             end
 
 
@@ -311,11 +303,11 @@ local function checkForInterruptions(TurtleObject)
     end
 end
 
-function turtleLib.Journey(TurtleObject, WorldMap, x, y, z, doAtTheEnd, ws)
+function turtleLib.Journey(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
     InterruptFromMessage = false
     parallel.waitForAny(
         function()
-            walkPath(TurtleObject, WorldMap, x, y, z, ws)
+            subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
         end,
 
         function()

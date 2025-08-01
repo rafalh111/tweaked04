@@ -3,7 +3,7 @@ local utils = require("utils")
 
 local nav = {}
 
-function nav.FlowCalculation(obstacle, neighbor)
+local function flowCalculation(obstacle, neighbor)
     local neighborDir = neighbor["direction"]
     local flowDir = obstacle["flowDirection"]
 
@@ -34,13 +34,7 @@ function nav.FlowCalculation(obstacle, neighbor)
     return "MergeFromSide"
 end
 
-function nav.DirectionCalculation(neighborVector, currentVector)
-    return utils.duwsenDirectionVectors[neighborVector:sub(currentVector):tostring()]
-end
-
-function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turtleID)
-    local b = vector.new(bX, bY, bZ)
-    local d = vector.new(dX, dY, dZ)
+function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleID)
     local dKey = d:tostring()
     
     if not WorldMap then
@@ -73,18 +67,18 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
         if loopCount % 1000 == 0 then
             print("A* loop count: " .. loopCount)
             
-            if not reverseCheck and current["weight"] > InitialWeight * 2 then
-                if isReverse then
-                    return false
-                end
-
-                if not nav.aStar("north", dX, dY, dZ, bX, bY, bZ, WorldMap, true) then
-                    print("The destination is unreachable.")
-                    return false
-                end
-
-                reverseCheck = true
-            end
+            -- if not reverseCheck and current["weight"] > InitialWeight * 2 then
+            --     if isReverse then
+            --         return false
+            --     end
+            --
+            -- if not nav.aStar("north", d, b, WorldMap, true) then
+            --     print("The destination is unreachable.")
+            --     return false
+            -- end
+            --
+            --     reverseCheck = true
+            -- end
 
             os.queueEvent("yield")
             os.pullEvent()
@@ -128,6 +122,7 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
             local neighborKey = neighborVector:tostring()
 
             -- skip if visited or an obstacle
+            
             if visited[neighborKey] then
                 goto continue  
             elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["flowDirection"] then
@@ -138,13 +133,17 @@ function nav.aStar(bDirection, bX, bY, bZ, dX, dY, dZ, WorldMap, isReverse, turt
                 vector = neighborVector,
                 turnCount = current["turnCount"],
                 stepCount = current["stepCount"] + 1,
-                direction = nav.DirectionCalculation(neighborVector, current["vector"])
+                direction = utils.duwsenDirectionVectors[neighbor["vector"]:sub(current["vector"]):tostring()]
             }
+
+            if neighbor["stepCount"] * 2 > fuel then
+                goto continue
+            end
 
             -- flow checks
             local flowResistance = 0
             if WorldMap[neighborKey] and WorldMap[neighborKey]["flowDirection"] then
-                local flow = nav.FlowCalculation(WorldMap[neighborKey], neighbor)
+                local flow = flowCalculation(WorldMap[neighborKey], neighbor)
                 if flow == "AgainstFlow" then
                     goto continue
                 elseif flow == "MergeFromSide" then
