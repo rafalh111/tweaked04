@@ -161,7 +161,7 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i)
     return true
 end
 
-local function mergeHandle(step, turtleObject, i, ws)
+local function intersectionHandle(step, turtleObject, i, ws)
     local companionIDs = turtleObject["journeyPath"][i - 1]["turtles"]
 
     repeat
@@ -197,7 +197,7 @@ local function mergeHandle(step, turtleObject, i, ws)
         local mergePossible = true
         local highestDiff = 0
         for _, problematicTurtle in ipairs(problematicTurtles) do
-            for intersectionIndex, problematicStep in ipairs(problematicTurtle["bestPath"]) do
+            for intersectionIndex, problematicStep in ipairs(problematicTurtle["journeyPath"]) do
                 if problematicStep["vector"] == step["vector"] then
                     local diff = intersectionIndex - problematicTurtle["journeyStepIndex"]
                     if diff <= 3 and diff > highestDiff then                   
@@ -234,9 +234,9 @@ end
 local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws)
     TurtleObject.busy = true
     repeat
-        local bestPath = nav.aStar(TurtleObject.face, TurtleObject.position, destination, WorldMap)
+        local journeyPath = nav.aStar(TurtleObject.face, TurtleObject.position, destination, WorldMap)
         
-        if not bestPath then
+        if not journeyPath then
             print("I am trapped :(")
             TurtleObject["journeyStepIndex"] = nil
             TurtleObject["journeyPath"] = nil
@@ -247,19 +247,19 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws
         TurtleObject["journeyStepIndex"] = i
 
         if not doAtTheEnd or doAtTheEnd ~= "go" then
-            destination = bestPath[#bestPath - 1]["vector"]
+            destination = journeyPath[#journeyPath - 1]["vector"]
         end
         
-        TurtleObject['journeyPath'] = bestPath
+        TurtleObject['journeyPath'] = journeyPath
 
-        print("Best path found with " .. #bestPath .. " steps.")
+        print("Best path found with " .. #journeyPath .. " steps.")
 
         ws.send(textutils.serializeJSON({
             type = "Journey",
-            payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
+            payload = {journeyPath = journeyPath, turtleID = TurtleObject.id}
         }))
 
-        for i, step in ipairs(bestPath) do
+        for i, step in ipairs(journeyPath) do
             if InterruptFromMessage then
                 print("Path interrupted by websocket message, recalculating...")
                 InterruptFromMessage = false
@@ -267,8 +267,16 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws
             end
 
             if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
-                if step["special"]["mergeFromSide"] then
-                    mergeHandle(step, bestPath, i, ws)
+                if step["special"]["intersection"] then
+                    intersectionHandle(step, journeyPath, i, ws)
+                    local ins = utils.getNeighbors(step["vector"])
+                    ws.send(textutils.serializeJSON({
+                        type = "intersection",
+                        payload = utils.getNeighbors(step["vector"])
+                    }))
+
+                    local message = utils.listenForWsMessage("intersectionData")
+
                 end
 
                 handleMovement(TurtleObject, WorldMap, step["direction"], i, ws)
@@ -282,7 +290,7 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws
 
         ws.send(textutils.serializeJSON({
             type = "Journeys End",
-            payload = {journeyPath = bestPath, turtleID = TurtleObject.id}
+            payload = {journeyPath = journeyPath, turtleID = TurtleObject.id}
         }))
     until TurtleObject.position == destination
 
@@ -292,10 +300,10 @@ end
 
 local function checkForInterruptions(TurtleObject)
     while true do
-        local message = utils.listenForWsMessage("obstacle on your way")
+        local message = utils.listenForWsMessages({"obstacle on your way", "new turtle on your path"})
 
-        for i = TurtleObject["journeyStepIndex"] + 1, #TurtleObject["bestPath"] do
-            if TurtleObject["bestPath"][i]:tostring() == message["payload"]["roadBlock"]:tostring() then
+        for i = TurtleObject["journeyStepIndex"] + 1, #TurtleObject["journeyPath"] do
+            if TurtleObject["journeyPath"][i]:tostring() == message["payload"]["roadBlock"]:tostring() then
                 InterruptFromMessage = true
                 break
             end

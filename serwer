@@ -59,10 +59,10 @@ server.on('connection', socket => {
         if (message.type === 'PassThrough') {
             for (const turtle in turtleObjects) {
                 if (turtleObjects[turtle].id === message.receiver) {
-                    message.type = message.newHeader || 'PassThrough'; // Use the new header if provided, otherwise default to 'PassThrough'
-                    delete message.newHeader; // Clean up the message to avoid confusion
-                    socket.send(JSON.stringify(message));
-
+                    const returnMessage = message
+                    returnMessage.type = message.newHeader || 'PassThrough'; // Use the new header if provided, otherwise default to 'PassThrough'
+                    delete returnMessage.newHeader; // Clean up the message to avoid confusion
+                    socket.send(JSON.stringify(returnMessage));
                     break;
                 }
             }
@@ -153,12 +153,26 @@ server.on('connection', socket => {
                 FoundTurtleObjects = findTurtleLogs(computercraftDirectory);
             }
             
-            const message = {
+            const returnMessage = {
                 type: 'TurtleScanResult',
                 payload: FoundTurtleObjects
             };
 
-            socket.send(JSON.stringify(message));
+            socket.send(JSON.stringify(returnMessage));
+        }
+
+        if (message.type === 'blockData') {
+            const blockData = {}
+            for (const vector of message.payload) {
+                message['payload'][vector] = WorldMap[vector]
+            }
+            
+            const returnMessage = {
+                type : 'blockData',
+                payload : blockData
+            }
+
+            socket.send(JSON.stringify(returnMessage));
         }
     });
     
@@ -169,13 +183,13 @@ server.on('connection', socket => {
 
         console.log('Turtle disconnected');
 
-        const message = {
+        const returnMessage = {
             type: 'TurtleDisconnect',
             payload: Object.keys(turtleObjects).find(id => turtleObjects[id].socket === socket)
         };
 
         for (const pc of PCs) {
-            pc.send(JSON.stringify(message));
+            pc.send(JSON.stringify(returnMessage));
         }
     });
 });

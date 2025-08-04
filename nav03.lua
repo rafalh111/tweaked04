@@ -109,59 +109,51 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleID)
             return bestPath
         end
 
-        local neighborVectors = {
-            current["vector"]:add(vector.new(1, 0, 0)),
-            current["vector"]:add(vector.new(-1, 0, 0)),
-            current["vector"]:add(vector.new(0, 0, 1)),
-            current["vector"]:add(vector.new(0, 0, -1)),
-            current["vector"]:add(vector.new(0, 1, 0)),
-            current["vector"]:add(vector.new(0, -1, 0))
-        }
+        local neighborVectors = utils.getNeighbors(current["vector"])
 
         for _, neighborVector in ipairs(neighborVectors) do
             local neighborKey = neighborVector:tostring()
 
             -- skip if visited or an obstacle
-            
             if visited[neighborKey] then
                 goto continue  
             elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["flowDirection"] then
                 goto continue
             end
             
-            local neighbor = {
-                vector = neighborVector,
-                turnCount = current["turnCount"],
-                stepCount = current["stepCount"] + 1,
-                direction = utils.duwsenDirectionVectors[neighbor["vector"]:sub(current["vector"]):tostring()]
-            }
+            local neighbor = {}
+            neighbor["vector"] = neighborVector
+            neighbor["turnCount"] = current["turnCount"]
+            neighbor["stepCount"] = current["stepCount"] + 1
+            neighbor["direction"] = utils.duwsenDirectionVectors[neighbor["vector"]:sub(current["vector"]):tostring()]
 
+            -- FUEL
             if neighbor["stepCount"] * 2 > fuel then
                 goto continue
             end
 
-            -- flow checks
+            -- FLOW
             local flowResistance = 0
             if WorldMap[neighborKey] and WorldMap[neighborKey]["flowDirection"] then
                 local flow = flowCalculation(WorldMap[neighborKey], neighbor)
                 if flow == "AgainstFlow" then
                     goto continue
-                elseif flow == "MergeFromSide" then
-                    flowResistance = flowResistance + 1
-                    neighbor["special"] = {mergeFromSide = true}
                 elseif flow == "PathFlow" then
-                    flowResistance = flowResistance - 1
+                    flowResistance = flowResistance - 1                
+                else
+                    flowResistance = flowResistance + 1
+                    neighbor["special"]["intersection"] = true
                 end
             end
 
-            -- turn penalty
+            -- TURN
             local turnCount = neighbor["turnCount"]
             if current["direction"] ~= neighbor["direction"] then
                 neighbor["turn"] = true
                 turnCount = turnCount + 1
             end
 
-            -- final weight
+            -- WEIGHT
             local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
             neighbor["weight"] = estimatedDistance + neighbor["stepCount"] + turnCount + flowResistance
 

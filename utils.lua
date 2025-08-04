@@ -30,6 +30,17 @@ utils.duwsenDirectionVectors = {
     [vector.new(0, -1, 0):tostring()] = "down"
 }
 
+function utils.getNeighbors(centralVector)
+    return {
+        centralVector:add(vector.new(1, 0, 0)),
+        centralVector:add(vector.new(-1, 0, 0)),
+        centralVector:add(vector.new(0, 0, 1)),
+        centralVector:add(vector.new(0, 0, -1)),
+        centralVector:add(vector.new(0, 1, 0)),
+        centralVector:add(vector.new(0, -1, 0))
+    }
+end
+
 function utils.listenForWsMessage(searchedFor)
     while true do
         local event, p1, p2, p3 = os.pullEvent()
@@ -38,6 +49,21 @@ function utils.listenForWsMessage(searchedFor)
 
             if message.type == searchedFor then
                 return message
+            end
+        end
+    end
+end
+
+function utils.listenForWsMessages(searchedFor)
+    while true do
+        local event, p1, p2, p3 = os.pullEvent()
+        if event == "websocket_message" then
+            local message = textutils.unserializeJSON(p2)
+
+            for _, searchedType in ipairs(searchedFor) do                
+                if message.type == searchedType then
+                    return message
+                end
             end
         end
     end
