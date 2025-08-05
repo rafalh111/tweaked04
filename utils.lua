@@ -3,9 +3,10 @@
 local utils = {}
 
 utils.neswDirections = {"north", "east","south", "west"}
+utils.neswudDirections = {"north", "east","south", "west", "up", "down"}
 
 function utils.FaceToIndex(face)
-    for index, direction in ipairs(utils.neswDirections) do
+    for index, direction in ipairs(utils.neswudDirections) do
         if direction == face then
             return index
         end

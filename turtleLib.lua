@@ -1,6 +1,10 @@
----@diagnostic disable: undefined-global, undefined-field
+--@diagnostic disable: undefined-global, undefined-field
 local nav = require("nav03")
 local utils = require("utils")
+local textutils
+local os
+local rednet
+local parallel
 
 local turtleLib = {}
 
@@ -67,7 +71,7 @@ function turtleLib.Sonar(TurtleObject, WorldMap, InFront, Above, Below, ws)
     }))
 end
 
-function turtleLib.SafeTurn(TurtleObject, WorldMap, direction, ws)
+function turtleLib.SafeTurn(TurtleObject, WorldMap, direction)
     if direction == "left" then
         turtle.turnLeft()
         TurtleObject.faceIndex = (TurtleObject.faceIndex - 2) % 4 + 1
@@ -112,13 +116,13 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
     return success
 end
 
-function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i)
+function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i, ws)
     local success
     
     if targetFace == "up" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "up", i)
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "up", i, ws)
     elseif targetFace == "down" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "down", i)
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "down", i, ws)
     else
         local diff = (utils.FaceToIndex(targetFace) - TurtleObject.faceIndex) % 4
         
@@ -138,13 +142,13 @@ function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i)
             end
         end
         
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "forward", i)
+        success = turtleLib.SafeMove(TurtleObject, WorldMap, "forward", i, ws)
     end
 
     return success
 end
 
-function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i)
+function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
     local targetV = vector.new(x, y, z)
     local delta = targetV:sub(TurtleObject.position)
     
@@ -154,7 +158,7 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i)
     
     local targetFace = utils.duwsenDirectionVectors[delta:tostring()]
 
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i) then
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i, ws) then
         return false
     end
 
@@ -162,39 +166,46 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i)
 end
 
 local function intersectionHandle(step, turtleObject, i, ws)
-    local companionIDs = turtleObject["journeyPath"][i - 1]["turtles"]
-
     repeat
-        ws.send(textutils.serializeJSON({
-            type = "TurtleScan",
-            payload = step["turtles"]
-        }))
+        local mergePossible = true
         
-        local intercectioners = utils.listenForWsMessage("TurtleScanResult")
-
-        if #intercectioners == 0 then 
-            return
+        -- get all intersection entries
+        local intersectionEntries = {}
+        for neighborDirection, neighborDirectionVector in ipairs(utils.neswudDirectionVectors) do
+            if neighborDirection ~= step["direction"] then
+                table.insert(intersectionEntries, step["vector"]:add(neighborDirectionVector))
+            end
+        end
+        ws.send(textutils.serializeJSON({type = "intersection", payload = intersectionEntries}))
+        local entriesDataKV = utils.listenForWsMessage("intersectionData")
+        
+        -- remove the ones without turtles
+        for vectorKey, entry in pairs(entriesDataKV) do
+            if #entry["turtles"] == 0 then
+                entriesDataKV[vectorKey] = nil
+            end
         end
         
+        -- get all turtles with higher priority
         local problematicTurtles = {}
-        for _, suspect in ipairs(intercectioners) do
-            local collider = true
-            for _, companionID in ipairs(companionIDs) do
-                if suspect["id"] == companionID then
-                    collider = false
+        local currentLocation = turtleObject["journeyPath"][i - 1]
+        for _, entry in pairs(entriesDataKV) do
+            if #entry["turtles"] > #currentLocation["turtles"]
+            or (#entry["turtles"] == #currentLocation["turtles"]
+            and utils.FaceToIndex(entry["direction"]) > utils.FaceToIndex(currentLocation["direction"])) then
+                for _, turtle in ipairs(entry["turtles"]) do
+                    if not utils.TableContains(problematicTurtles, turtle)
+                    and not utils.TableContains(currentLocation["turtles"], turtle) then
+                        table.insert(problematicTurtles, turtle)
+                    end
                 end
             end
-
-            if collider == true then
-                table.insert(problematicTurtles, suspect)
-            end
         end
-        
-        if #problematicTurtles == 0 then
+
+        if #problematicTurtles == 0 then 
             return
         end
         
-        local mergePossible = true
         local highestDiff = 0
         for _, problematicTurtle in ipairs(problematicTurtles) do
             for intersectionIndex, problematicStep in ipairs(problematicTurtle["journeyPath"]) do
@@ -207,15 +218,16 @@ local function intersectionHandle(step, turtleObject, i, ws)
                 end
             end
         end
-        
+
         if not mergePossible then
             os.sleep(highestDiff)
         end
+
     until not mergePossible
 end
 
 local function handleMovement(TurtleObject, WorldMap, step, i, ws)
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i) then
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i, ws) then
         print("Failed to move to direction: " .. step["direction"])
         
         for _, passingTurtleID in ipairs(step["turtles"]) do
@@ -229,6 +241,8 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
 
         return false
     end
+
+    return true
 end
 
 local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws)
@@ -268,18 +282,10 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws
 
             if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
                 if step["special"]["intersection"] then
-                    intersectionHandle(step, journeyPath, i, ws)
-                    local ins = utils.getNeighbors(step["vector"])
-                    ws.send(textutils.serializeJSON({
-                        type = "intersection",
-                        payload = utils.getNeighbors(step["vector"])
-                    }))
-
-                    local message = utils.listenForWsMessage("intersectionData")
-
+                    intersectionHandle(step, TurtleObject, i, ws)
                 end
 
-                handleMovement(TurtleObject, WorldMap, step["direction"], i, ws)
+                handleMovement(TurtleObject, WorldMap, step, i, ws)
             end
 
 

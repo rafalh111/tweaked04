@@ -167,12 +167,5 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleID)
 
     return false
 end
--- bestPath example look like this: 
--- {
---     {vector = vector.new(1, 0, 0), weight = 3},
---     {vector = vector.new(2, 0, 0), weight = 2},
---     {vector = vector.new(3, 0, 0), weight = 1},
---     {vector = vector.new(4, 0, 0), weight = 0}
--- }
 
 return nav
