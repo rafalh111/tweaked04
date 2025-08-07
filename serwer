@@ -134,11 +134,12 @@ server.on('connection', socket => {
                 }
 
                 WorldMap[key].turtles = WorldMap[key].turtles.filter(id => id !== turtleID); // Remove the turtle ID from the list
-                if (WorldMap[key].turtles.length > 0) {
-                    continue; // If there are still turtles, keep the key
+                WorldMap[key]['flowDirection'] = WorldMap[key]['flowDirection'].filter(id => id !== step['direction']); // Remove the direction from the list
+                if (WorldMap[key].turtles.length === 0) {
+                    delete WorldMap[key];                    
                 }
 
-                delete WorldMap[key].turtles;
+                
             }
 
             fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));

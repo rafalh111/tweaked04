@@ -1,11 +1,11 @@
----@diagnostic disable: undefined-global, undefined-field
+--@diagnostic disable: undefined-global, undefined-field
 local utils = require("utils")
 
 local nav = {}
 
 local function flowCalculation(obstacle, neighbor)
     local neighborDir = neighbor["direction"]
-    local flowDir = obstacle["flowDirection"]
+    local flowDir = obstacle["direction"]
 
     -- Perfect alignment with flow
     if neighborDir == flowDir then
@@ -34,30 +34,25 @@ local function flowCalculation(obstacle, neighbor)
     return "MergeFromSide"
 end
 
-function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleID)
+function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
     local dKey = d:tostring()
     
     if not WorldMap then
         WorldMap = {}
     end
 
-    local queue = {{
-        vector = b,
-        weight = utils.ManhattanDistance(b, d),
-        stepCount = 0,
-        turnCount = 0,
-        direction = bDirection
-    }}
-
+    local queue = {}
+    queue[1]["vector"] = b
+    queue[1]["weight"] = utils.ManhattanDistance(b, d)
+    queue[1]["stepCount"] = 0
+    queue[1]["turnCount"] = 0
+    queue[1]["direction"] = bDirection
     setmetatable(queue, utils.Heap)
 
     local cameFrom = {}  -- key: position string, value: parent neighbor
     local visited = {[b:tostring()] = true}
 
     local loopCount = 0
-    local InitialWeight = utils.ManhattanDistance(b, d) + 0 -- Initial weight is just the Manhattan distance
-    local reverseCheck = false
-
     while #queue > 0 do
         loopCount = loopCount + 1
 
@@ -83,85 +78,83 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleID)
             os.queueEvent("yield")
             os.pullEvent()
         end
-
+        
+        -- PATH RECONSTRUCTION
         if currentKey == dKey then
-            local bestPath = {}
+            local journeyPath = {}
 
             while current do
+                -- leave current["vector"]
                 current["weight"] = nil  -- Remove weight from the path
                 current["stepCount"] = nil  -- Remove step count from the path
                 current["turnCount"] = nil  -- Remove turn count from the path
-                --current["flowDirection"] = current["direction"]  -- Keep the flow direction for the path
-                
-                if turtleID then
+                -- leave current["direction"]
+
+                if turtleObject then
                     current["turtles"] = current["turtles"] or {}
-                    table.insert(current["turtles"], turtleID)
+                    table.insert(current["turtles"], turtleObject["id"])
                 end
                 
-                table.insert(bestPath, 1, current)
+                table.insert(journeyPath, 1, current)
                 currentKey = current["vector"]:tostring()
                 current = cameFrom[currentKey]
             end
 
-            table.remove(bestPath, 1)
-            bestPath[#bestPath]["special"]["lastBlock"] = true
+            table.remove(journeyPath, 1)
+            journeyPath[#journeyPath]["special"]["lastBlock"] = true
 
-            return bestPath
+            return journeyPath
         end
 
-        local neighborVectors = utils.getNeighbors(current["vector"])
-
-        for _, neighborVector in ipairs(neighborVectors) do
-            local neighborKey = neighborVector:tostring()
-
-            -- skip if visited or an obstacle
-            if visited[neighborKey] then
-                goto continue  
-            elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["flowDirection"] then
-                goto continue
-            end
+        -- QUEUE BUILD
+        if current["stepCount"] * 2 < fuel then
+            local neighborVectors = utils.getNeighbors(current["vector"])
             
-            local neighbor = {}
-            neighbor["vector"] = neighborVector
-            neighbor["turnCount"] = current["turnCount"]
-            neighbor["stepCount"] = current["stepCount"] + 1
-            neighbor["direction"] = utils.duwsenDirectionVectors[neighbor["vector"]:sub(current["vector"]):tostring()]
+            for _, neighborVector in ipairs(neighborVectors) do
+                local neighborKey = neighborVector:tostring()
 
-            -- FUEL
-            if neighbor["stepCount"] * 2 > fuel then
-                goto continue
-            end
-
-            -- FLOW
-            local flowResistance = 0
-            if WorldMap[neighborKey] and WorldMap[neighborKey]["flowDirection"] then
-                local flow = flowCalculation(WorldMap[neighborKey], neighbor)
-                if flow == "AgainstFlow" then
+                -- skip if visited or an obstacle
+                if visited[neighborKey] then
                     goto continue
-                elseif flow == "PathFlow" then
-                    flowResistance = flowResistance - 1                
-                else
-                    flowResistance = flowResistance + 1
-                    neighbor["special"]["intersection"] = true
+                elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["direction"] then
+                    goto continue
                 end
+                
+                local neighbor = {}
+                neighbor["vector"] = neighborVector
+                neighbor["turnCount"] = current["turnCount"]
+                neighbor["stepCount"] = current["stepCount"] + 1
+                neighbor["direction"] = utils.duwsenDirectionVectors[neighbor["vector"]:sub(current["vector"]):tostring()]
+
+                -- FLOW
+                local flowResistance = 0
+                if WorldMap[neighborKey] and WorldMap[neighborKey]["direction"] then
+                    local flow = flowCalculation(WorldMap[neighborKey], neighbor)
+                    if flow == "AgainstFlow" then
+                        goto continue
+                    elseif flow == "PathFlow" then
+                        flowResistance = flowResistance - 1                
+                    else
+                        flowResistance = flowResistance + 1
+                    end
+                end
+
+                -- TURN
+                local turnCount = neighbor["turnCount"]
+                if current["direction"] ~= neighbor["direction"] then
+                    turnCount = turnCount + 1
+                end
+
+                -- WEIGHT
+                local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
+                neighbor["weight"] = estimatedDistance + neighbor["stepCount"] + turnCount + flowResistance
+
+                visited[neighborKey] = true
+                cameFrom[neighborKey] = current
+                queue:push(neighbor)
+                
+                ::continue::
             end
-
-            -- TURN
-            local turnCount = neighbor["turnCount"]
-            if current["direction"] ~= neighbor["direction"] then
-                neighbor["turn"] = true
-                turnCount = turnCount + 1
-            end
-
-            -- WEIGHT
-            local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
-            neighbor["weight"] = estimatedDistance + neighbor["stepCount"] + turnCount + flowResistance
-
-            visited[neighborKey] = true
-            cameFrom[neighborKey] = current
-            queue:push(neighbor)
-            
-            ::continue::
         end
     end
 
