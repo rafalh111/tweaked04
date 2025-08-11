@@ -26,9 +26,5 @@ while true do
 
     if event == "rednet_message" then
         local senderID, message, protocol = p1, p2, p3
-
-        if message == "Scan" then
-            rednet.send(senderID, textutils.serialize(TurtleObject), "ScanResponse")
-        end
     end
 end

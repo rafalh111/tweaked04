@@ -1,3 +1,5 @@
+import { prototype } from "ws";
+
 // Direction arrays
 export const neswDirections = ["north", "east", "south", "west"];
 export const neswudDirections = ["north", "east", "south", "west", "up", "down"];

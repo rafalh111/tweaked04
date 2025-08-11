@@ -245,89 +245,97 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     return true
 end
 
-local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, i, ws)
+local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
     TurtleObject.busy = true
+    
     repeat
-        local journeyPath = nav.aStar(TurtleObject.face, TurtleObject.position, destination, WorldMap)
-        
-        if not journeyPath then
-            print("I am trapped :(")
-            TurtleObject["journeyStepIndex"] = nil
-            TurtleObject["journeyPath"] = nil
-            TurtleObject.busy = false
-            return false
-        end
-        
-        TurtleObject["journeyStepIndex"] = i
+        -- If journeyPath not yet set, request it from the server
+        if not TurtleObject["journeyPath"] then
+            ws.send(textutils.serializeJSON({
+                type = "Journey",
+                payload = TurtleObject,
+                destination = destination
+            }))
 
-        if not doAtTheEnd or doAtTheEnd ~= "go" then
-            destination = journeyPath[#journeyPath - 1]["vector"]
-        end
-        
-        TurtleObject['journeyPath'] = journeyPath
-
-        print("Best path found with " .. #journeyPath .. " steps.")
-
-        ws.send(textutils.serializeJSON({
-            type = "Journey",
-            payload = {journeyPath = journeyPath, turtleID = TurtleObject.id}
-        }))
-
-        for i, step in ipairs(journeyPath) do
-            if InterruptFromMessage then
-                print("Path interrupted by websocket message, recalculating...")
-                InterruptFromMessage = false
-                break
+            local message = utils.listenForWsMessage("NewPath")
+            local journeyPath = message.payload
+            
+            if journeyPath == "no path found" then
+                print("I am trapped :(")
+                TurtleObject["journeyStepIndex"] = nil
+                TurtleObject["journeyPath"] = nil
+                TurtleObject.busy = false
+                return false
             end
 
-            if not step["special"]["lastBlock"] or step["special"]["lastBlock"] == "go" then
-                if step["special"]["intersection"] then
-                    intersectionHandle(step, TurtleObject, i, ws)
+            if not doAtTheEnd or doAtTheEnd ~= "go" then
+                destination = journeyPath[#journeyPath - 1].vector
+            end
+
+            TurtleObject["journeyPath"] = journeyPath
+            TurtleObject["journeyStepIndex"] = 1
+
+            print("Best path found with " .. #journeyPath .. " steps.")
+        end
+
+        -- Follow the current journeyPath
+        while TurtleObject["journeyPath"] and TurtleObject["journeyStepIndex"] <= #TurtleObject["journeyPath"] do
+            local step = TurtleObject["journeyPath"][TurtleObject["journeyStepIndex"]]
+
+            if not step.special.lastBlock or step.special.lastBlock == "go" then
+                if step.special.intersection then
+                    intersectionHandle(step, TurtleObject, TurtleObject["journeyStepIndex"], ws)
                 end
-
-                handleMovement(TurtleObject, WorldMap, step, i, ws)
+                handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws)
             end
 
-
+            TurtleObject["journeyStepIndex"] = TurtleObject["journeyStepIndex"] + 1
         end
 
+        -- Clear after journey finished
         TurtleObject["journeyStepIndex"] = nil
         TurtleObject["journeyPath"] = nil
 
         ws.send(textutils.serializeJSON({
             type = "Journeys End",
-            payload = {journeyPath = journeyPath, turtleID = TurtleObject.id}
+            payload = {journeyPath = "completed", turtleID = TurtleObject.id}
         }))
-    until TurtleObject.position == destination
 
-    TurtleObject["busy"] = false
+    until TurtleObject.position:equals(destination)
+
+    TurtleObject.busy = false
     return true
 end
 
 local function checkForInterruptions(TurtleObject)
     while true do
-        local message = utils.listenForWsMessages({"obstacle on your way", "new turtle on your path"})
+        local message = utils.listenForWsMessages({
+            "obstacle on your way",
+            "new turtle on your path"
+        })
 
-        for i = TurtleObject["journeyStepIndex"] + 1, #TurtleObject["journeyPath"] do
-            if TurtleObject["journeyPath"][i]:tostring() == message["payload"]["roadBlock"]:tostring() then
-                InterruptFromMessage = true
-                break
-            end
+        -- Replace the journey path with the new one from the message
+        local newPath = message.payload.newPath
+        if newPath and type(newPath) == "table" then
+            print("Received new path from server, updating journey...")
+            TurtleObject["journeyPath"] = newPath
+            TurtleObject["journeyStepIndex"] = 1
+        else
+            print("Interrupt message received but no valid new path.")
         end
     end
 end
 
 function turtleLib.Journey(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
-    InterruptFromMessage = false
     parallel.waitForAny(
         function()
             subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
         end,
-
         function()
             checkForInterruptions(TurtleObject)
         end
     )
 end
+
 
 return turtleLib

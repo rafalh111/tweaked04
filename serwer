@@ -109,21 +109,41 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'Journey') {
-            const journeyPath = message.payload.journeyPath;
-            const turtleID = message.payload.turtleID;
+            const destination = message.payload.destination;
+            const turtleID = message.payload.TurtleObject.turtleID;
 
-            for (const step of journeyPath) {
-                if (!WorldMap[step.vector]) {
-                    WorldMap[step.vector] = step;
-                    continue;
+            const journeyPath = aStar(
+                TurtleObject.position,
+                destination,
+                TurtleObject.fuel,
+                WorldMap, 
+            )
+
+            if (journeyPath) {
+                for (const step of journeyPath) {
+                    if (!WorldMap[step.vector]) {
+                        WorldMap[step.vector] = step;
+                        continue;
+                    }
+
+                    if (!WorldMap[step.vector].turtles.includes(turtleID)) {
+                        WorldMap[step.vector].turtles.push(turtleID);
+                    }
+
+                    fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
                 }
-
-                if (!WorldMap[step.vector].turtles.includes(turtleID)) {
-                    WorldMap[step.vector].turtles.push(turtleID);
+                const returnMessage = {
+                    type : 'NewPath',
+                    payload : journeyPath
+                }
+            } else {
+                const returnMessage = {
+                    type : 'NewPath',
+                    payload : 'no path found'
                 }
             }
-
-            fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
+            
+            socket.send(JSON.stringify(returnMessage));
         }
 
 
