@@ -34,25 +34,32 @@ local function flowCalculation(obstacle, neighbor)
     return "MergeFromSide"
 end
 
-function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
-    local dKey = d:tostring()
-    
+local function isDestination(destinations, currentKey)
+    for _, destination in ipairs(destinations) do
+        if destination:tostring() == currentKey then
+            return true
+        end
+    end
+end
+
+function nav.aStar(config, WorldMap, turtleObject)
     if not WorldMap then
         WorldMap = {}
     end
 
     local queue = {}
-    queue[1]["vector"] = b
-    queue[1]["weight"] = utils.ManhattanDistance(b, d)
+    queue[1]["vector"] = config["beginning"]
+    queue[1]["weight"] = utils.MultiManhattanDistance(config["beginning"], config["destinations"])
     queue[1]["stepCount"] = 0
     queue[1]["turnCount"] = 0
-    queue[1]["direction"] = bDirection
+    queue[1]["direction"] = config["initialDirection"]
     setmetatable(queue, utils.Heap)
 
     local cameFrom = {}  -- key: position string, value: parent neighbor
-    local visited = {[b:tostring()] = true}
+    local visited = {[config["beginning"]:tostring()] = true}
 
     local loopCount = 0
+
     while #queue > 0 do
         loopCount = loopCount + 1
 
@@ -68,7 +75,7 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
             --     end
             --
             -- if not nav.aStar("north", d, b, WorldMap, true) then
-            --     print("The destination is unreachable.")
+            --     print("The destinations is unreachable.")
             --     return false
             -- end
             --
@@ -80,15 +87,11 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
         end
         
         -- PATH RECONSTRUCTION
-        if currentKey == dKey then
+        if isDestination(config["destinations"], currentKey) then
             local journeyPath = {}
 
             while current do
-                -- leave current["vector"]
                 current["weight"] = nil  -- Remove weight from the path
-                current["stepCount"] = nil  -- Remove step count from the path
-                current["turnCount"] = nil  -- Remove turn count from the path
-                -- leave current["direction"]
 
                 if turtleObject then
                     current["turtles"] = current["turtles"] or {}
@@ -107,7 +110,7 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
         end
 
         -- QUEUE BUILD
-        if current["stepCount"] * 2 < fuel then
+        if current["stepCount"] * 2 < turtleObject["fuel"] then
             local neighborVectors = utils.getNeighbors(current["vector"])
             
             for _, neighborVector in ipairs(neighborVectors) do
@@ -146,7 +149,7 @@ function nav.aStar(bDirection, b, d, fuel, WorldMap, turtleObject)
                 end
 
                 -- WEIGHT
-                local estimatedDistance = utils.ManhattanDistance(neighborVector, d)
+                local estimatedDistance = utils.MultiManhattanDistance(neighborVector, config["destinations"])
                 neighbor["weight"] = estimatedDistance + neighbor["stepCount"] + turnCount + flowResistance
 
                 visited[neighborKey] = true

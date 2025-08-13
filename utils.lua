@@ -105,6 +105,17 @@ function utils.ManhattanDistance(v1, v2)
     return math.abs(v1.x - v2.x) + math.abs(v1.y - v2.y) + math.abs(v1.z - v2.z)
 end
 
+function utils.MultiManhattanDistance(v1, v2Table)
+    local lowestDistance = 0
+    for _, v2 in ipairs(v2Table) do
+        local distance = utils.ManhattanDistance(v1, v2)
+        if distance < lowestDistance then
+            lowestDistance = distance
+        end
+    end
+    return lowestDistance
+end
+
 function utils.SerializeAndSave(content, filepath)
     local file = fs.open(filepath, "w")
     file.write(textutils.serialize(content))
