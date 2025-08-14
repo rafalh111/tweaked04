@@ -116,13 +116,14 @@ function nav.aStar(config, WorldMap, turtleObject)
             for _, neighborVector in ipairs(neighborVectors) do
                 local neighborKey = neighborVector:tostring()
 
-                -- skip if visited or an obstacle
+                -- SKIP STACK
                 if visited[neighborKey] then
                     goto continue
                 elseif WorldMap[neighborKey] and not WorldMap[neighborKey]["direction"] then
                     goto continue
                 end
                 
+                -- NEIGHBOR INIT
                 local neighbor = {}
                 neighbor["vector"] = neighborVector
                 neighbor["turnCount"] = current["turnCount"]
@@ -134,7 +135,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["direction"] then
                     local flow = flowCalculation(WorldMap[neighborKey], neighbor)
                     if flow == "AgainstFlow" then
-                        goto continue
+                        flowResistance = flowResistance + 2
                     elseif flow == "PathFlow" then
                         flowResistance = flowResistance - 1                
                     else

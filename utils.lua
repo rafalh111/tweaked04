@@ -106,10 +106,10 @@ function utils.ManhattanDistance(v1, v2)
 end
 
 function utils.MultiManhattanDistance(v1, v2Table)
-    local lowestDistance = 0
+    local lowestDistance = nil
     for _, v2 in ipairs(v2Table) do
         local distance = utils.ManhattanDistance(v1, v2)
-        if distance < lowestDistance then
+        if not lowestDistance or distance < lowestDistance then
             lowestDistance = distance
         end
     end

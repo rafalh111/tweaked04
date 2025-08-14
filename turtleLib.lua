@@ -245,7 +245,7 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     return true
 end
 
-local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
+local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
     TurtleObject["busy"] = true
     
     repeat
@@ -253,8 +253,10 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
         if not TurtleObject["journeyPath"] then
             ws.send(textutils.serializeJSON({
                 type = "Journey",
-                payload = TurtleObject,
-                destination = destination
+                payload = {
+                    TurtleObject = TurtleObject,
+                    destination = destination
+                }
             }))
 
             local message = utils.listenForWsMessage("NewPath")
@@ -281,15 +283,23 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
         -- Follow the current journeyPath
         while TurtleObject["journeyPath"] and TurtleObject["journeyStepIndex"] <= #TurtleObject["journeyPath"] do
             local step = TurtleObject["journeyPath"][TurtleObject["journeyStepIndex"]]
-
+            
             if not step.special.lastBlock or step.special.lastBlock == "go" then
                 if step.special.intersection then
                     intersectionHandle(step, TurtleObject, TurtleObject["journeyStepIndex"], ws)
                 end
-                handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws)
+                
+                if handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws) == false then
+                    break
+                end
             end
-
+            
+            if interruption[1] == true then
+                interruption[1] = false
+                break
+            end
             TurtleObject["journeyStepIndex"] = TurtleObject["journeyStepIndex"] + 1
+            
         end
 
         -- Clear after journey finished
@@ -298,16 +308,21 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
 
         ws.send(textutils.serializeJSON({
             type = "Journeys End",
-            payload = {journeyPath = "completed", turtleID = TurtleObject["id"]}
+            payload = {
+                journeyPath = TurtleObject["journeyPath"], 
+                turtleID = TurtleObject["id"]
+            }
         }))
 
     until TurtleObject["position"]:equals(destination)
 
     TurtleObject["busy"] = false
+    utils.SerializeAndSave(TurtleObject, "turtleLog")
+
     return true
 end
 
-local function checkForInterruptions(TurtleObject)
+local function checkForInterruptions(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
     while true do
         local message = utils.listenForWsMessages({
             "obstacle on your way",
@@ -318,23 +333,25 @@ local function checkForInterruptions(TurtleObject)
         local newPath = message.payload.newPath
         if newPath and type(newPath) == "table" then
             print("Received new path from server, updating journey...")
-            local bridge 
+
             TurtleObject["journeyPath"] = newPath
             TurtleObject["journeyStepIndex"] = 1
         else
             print("Interrupt message received but no valid new path.")
+            interruption[1] = true
         end
     end
 end
 
 function turtleLib.Journey(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
+    local interruption = { false }
     parallel.waitForAny(
         function()
-            subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
+            subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
         end,
 
         function()
-            checkForInterruptions(TurtleObject)
+            checkForInterruptions(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
         end
     )
 end

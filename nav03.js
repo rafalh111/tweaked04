@@ -1,13 +1,14 @@
 import {
-    Vector, Heap, ManhattanDistance,
+    Vector, Heap, MultiManhattanDistance,
     duwsenDirectionVectors, FaceToIndex, 
-    neswudDirectionVectors
+    getNeighbors
 } from './utils.js';
 
 function flowCalculation(obstacle, neighbor) {
     const neighborDir = neighbor.direction;
     const flowDir = obstacle.direction;
 
+    // Perfect alignment with flow
     if (neighborDir === flowDir) {
         return "PathFlow";
     }
@@ -26,7 +27,6 @@ function flowCalculation(obstacle, neighbor) {
         const obstacleFlowIndex = FaceToIndex(flowDir);
         const neighborFlowIndex = FaceToIndex(neighborDir);
         if (obstacleFlowIndex !== null && neighborFlowIndex !== null) {
-            // fix modulo to handle negative results in JS
             const diff = ((obstacleFlowIndex - neighborFlowIndex) + 4) % 4;
             if (diff === 2) {
                 return "AgainstFlow";
@@ -37,36 +37,49 @@ function flowCalculation(obstacle, neighbor) {
     return "MergeFromSide";
 }
 
-export function aStar(bDirection, b, d, fuel, WorldMap, turtleObject) {
-    const dKey = d.toString();
+function isDestination(destinations, currentKey) {
+    for (const destination of destinations) {
+        if (destination.toString() === currentKey) {
+            return true;
+        }
+    }
+    return false;
+}
 
-    if (!WorldMap) WorldMap = {};
-
+export function aStar(config, WorldMap = {}, turtleObject) {
     const queue = new Heap();
     queue.push({
-        vector: b,
-        weight: ManhattanDistance(b, d),
+        vector: config.beginning,
+        weight: MultiManhattanDistance(config.beginning, config.destinations),
         stepCount: 0,
         turnCount: 0,
-        direction: bDirection
+        direction: config.initialDirection
     });
 
     const cameFrom = {};
-    const visited = { [b.toString()]: true };
+    const visited = { [config.beginning.toString()]: true };
+
+    let loopCount = 0;
 
     while (queue.items.length > 0) {
+        loopCount++;
+
         const current = queue.pop();
         const currentKey = current.vector.toString();
 
+        // Periodic yield like Lua (optional in JS, here just a placeholder)
+        if (loopCount % 1000 === 0) {
+            // Simulated yield if running in async environment
+            // await new Promise(r => setTimeout(r, 0));
+        }
+
         // PATH RECONSTRUCTION
-        if (currentKey === dKey) {
+        if (isDestination(config.destinations, currentKey)) {
             const journeyPath = [];
 
             let node = current;
             while (node) {
                 delete node.weight;
-                delete node.stepCount;
-                delete node.turnCount;
 
                 if (turtleObject) {
                     node.turtles = node.turtles || [];
@@ -74,8 +87,7 @@ export function aStar(bDirection, b, d, fuel, WorldMap, turtleObject) {
                 }
 
                 journeyPath.unshift(node);
-                const key = node.vector.toString();
-                node = cameFrom[key];
+                node = cameFrom[node.vector.toString()];
             }
 
             journeyPath.shift();
@@ -87,22 +99,18 @@ export function aStar(bDirection, b, d, fuel, WorldMap, turtleObject) {
         }
 
         // QUEUE BUILD
-        if (current.stepCount * 2 < fuel) {
-            const neighborVectors = [
-                current.vector.add(new Vector(1, 0, 0)),
-                current.vector.add(new Vector(-1, 0, 0)),
-                current.vector.add(new Vector(0, 0, 1)),
-                current.vector.add(new Vector(0, 0, -1)),
-                current.vector.add(new Vector(0, 1, 0)),
-                current.vector.add(new Vector(0, -1, 0))
-            ];  
+        if (current.stepCount * 2 < turtleObject.fuel) {
+            const neighborVectors = getNeighbors(current.vector);
 
             for (const neighborVector of neighborVectors) {
                 const neighborKey = neighborVector.toString();
 
+                // Skip if already visited
                 if (visited[neighborKey]) continue;
+                // Skip if WorldMap entry exists without a direction
                 if (WorldMap[neighborKey] && !WorldMap[neighborKey].direction) continue;
 
+                // NEIGHBOR INIT
                 const neighbor = {
                     vector: neighborVector,
                     turnCount: current.turnCount,
@@ -116,9 +124,13 @@ export function aStar(bDirection, b, d, fuel, WorldMap, turtleObject) {
                 let flowResistance = 0;
                 if (WorldMap[neighborKey] && WorldMap[neighborKey].direction) {
                     const flow = flowCalculation(WorldMap[neighborKey], neighbor);
-                    if (flow === "AgainstFlow") continue;
-                    else if (flow === "PathFlow") flowResistance -= 1;
-                    else flowResistance += 1;
+                    if (flow === "AgainstFlow") {
+                        flowResistance += 2; // Penalize like Lua, not block
+                    } else if (flow === "PathFlow") {
+                        flowResistance -= 1;
+                    } else {
+                        flowResistance += 1;
+                    }
                 }
 
                 // TURN
@@ -128,7 +140,7 @@ export function aStar(bDirection, b, d, fuel, WorldMap, turtleObject) {
                 }
 
                 // WEIGHT
-                const estimatedDistance = ManhattanDistance(neighborVector, d);
+                const estimatedDistance = MultiManhattanDistance(neighborVector, config.destinations);
                 neighbor.weight = estimatedDistance + neighbor.stepCount + turnCount + flowResistance;
 
                 visited[neighborKey] = true;

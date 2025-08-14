@@ -65,6 +65,17 @@ export function ManhattanDistance(v1, v2) {
            Math.abs(v1.z - v2.z);
 }
 
+export function MultiManhattanDistance(v1, v2Array) {
+    let lowestDistance = null;
+    for (const v2 of v2Array) {
+        const distance = ManhattanDistance(v1, v2);
+        if (lowestDistance === null || distance < lowestDistance) {
+            lowestDistance = distance;
+        }
+    }
+    return lowestDistance;
+}
+
 export class Heap {
     constructor() {
         this.items = [];
