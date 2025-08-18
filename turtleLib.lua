@@ -40,26 +40,27 @@ function turtleLib.Sonar(TurtleObject, WorldMap, InFront, Above, Below, ws)
     local detectedChanges = {}
 
     if InFront then
-        local blockInFrontVectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors[TurtleObject["face"]]):tostring()
-        local blockedForward, dataForward = turtle.inspect()
-        detectedChanges[blockInFrontVectorKey] = {blocked = blockedForward, data = dataForward.name}
+        local vectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors[TurtleObject["face"]]):tostring()
+        local blocked, data = turtle.inspect()
+        detectedChanges[vectorKey] = {blocked = blocked, data = data.name}
     end
 
     if Above then
-        local blockAboveVectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors["up"]):tostring()
-        local blockedUp, dataUp = turtle.inspectUp()
-        detectedChanges[blockAboveVectorKey] = {blocked = blockedUp, data = dataUp.name}
+        local vectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors["up"]):tostring()
+        local blocked, data = turtle.inspectUp()
+        detectedChanges[vectorKey] = {blocked = blocked, data = data.name}
     end
 
     if Below then
-        local blockBelowVectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors["down"]):tostring()
-        local blockedDown, dataDown = turtle.inspectDown()
-        detectedChanges[blockBelowVectorKey] = {blocked = blockedDown, data = dataDown.name}
+        local vectorKey = TurtleObject["position"]:add(utils.neswudDirectionVectors["down"]):tostring()
+        local blocked, data = turtle.inspectDown()
+        detectedChanges[vectorKey] = {blocked = blocked, data = data.name}
     end
 
     for vectorKey, inspectVariables in pairs(detectedChanges) do
         if inspectVariables.blocked and not WorldMap[vectorKey] then
-            WorldMap[vectorKey] = inspectVariables.data;   
+            WorldMap[vectorKey] = inspectVariables.data;
+            WorldMap[vectorKey]["blocked"] = true
         elseif not inspectVariables.blocked and WorldMap[vectorKey] then
             WorldMap[vectorKey] = nil
         end
@@ -165,66 +166,66 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
     return true
 end
 
-local function intersectionHandle(step, turtleObject, i, ws)
-    repeat
-        local mergePossible = true
-        
-        -- get all intersection entries
-        local intersectionEntries = {}
-        for neighborDirection, neighborDirectionVector in ipairs(utils.neswudDirectionVectors) do
-            if neighborDirection ~= step["direction"] then
-                table.insert(intersectionEntries, step["vector"]:add(neighborDirectionVector))
-            end
-        end
-        ws.send(textutils.serializeJSON({type = "intersection", payload = intersectionEntries}))
-        local entriesDataKV = utils.listenForWsMessage("intersectionData")
-        
-        -- remove the ones without turtles
-        for vectorKey, entry in pairs(entriesDataKV) do
-            if #entry["turtles"] == 0 then
-                entriesDataKV[vectorKey] = nil
-            end
-        end
-        
-        -- get all turtles with higher priority
-        local problematicTurtles = {}
-        local currentLocation = turtleObject["journeyPath"][i - 1]
-        for _, entry in pairs(entriesDataKV) do
-            if #entry["turtles"] > #currentLocation["turtles"]
-            or (#entry["turtles"] == #currentLocation["turtles"]
-            and utils.FaceToIndex(entry["direction"]) > utils.FaceToIndex(currentLocation["direction"])) then
-                for _, turtle in ipairs(entry["turtles"]) do
-                    if not utils.TableContains(problematicTurtles, turtle)
-                    and not utils.TableContains(currentLocation["turtles"], turtle) then
-                        table.insert(problematicTurtles, turtle)
-                    end
-                end
-            end
-        end
-
-        if #problematicTurtles == 0 then 
-            return
-        end
-        
-        local highestDiff = 0
-        for _, problematicTurtle in ipairs(problematicTurtles) do
-            for intersectionIndex, problematicStep in ipairs(problematicTurtle["journeyPath"]) do
-                if problematicStep["vector"] == step["vector"] then
-                    local diff = intersectionIndex - problematicTurtle["journeyStepIndex"]
-                    if diff <= 3 and diff > highestDiff then                   
-                        highestDiff = diff
-                        mergePossible = false
-                    end
-                end
-            end
-        end
-
-        if not mergePossible then
-            os.sleep(highestDiff)
-        end
-
-    until not mergePossible
-end
+-- local function intersectionHandle(step, turtleObject, i, ws)
+--     repeat
+--         local mergePossible = true
+--         
+--         -- get all intersection entries
+--         local intersectionEntries = {}
+--         for neighborDirection, neighborDirectionVector in ipairs(utils.neswudDirectionVectors) do
+--             if neighborDirection ~= step["direction"] then
+--                 table.insert(intersectionEntries, step["vector"]:add(neighborDirectionVector))
+--             end
+--         end
+--         ws.send(textutils.serializeJSON({type = "intersection", payload = intersectionEntries}))
+--         local entriesDataKV = utils.listenForWsMessage("intersectionData")
+--         
+--         -- remove the ones without turtles
+--         for vectorKey, entry in pairs(entriesDataKV) do
+--             if #entry["turtles"] == 0 then
+--                 entriesDataKV[vectorKey] = nil
+--             end
+--         end
+--         
+--         -- get all turtles with higher priority
+--         local problematicTurtles = {}
+--         local currentLocation = turtleObject["journeyPath"][i - 1]
+--         for _, entry in pairs(entriesDataKV) do
+--             if #entry["turtles"] > #currentLocation["turtles"]
+--             or (#entry["turtles"] == #currentLocation["turtles"]
+--             and utils.FaceToIndex(entry["direction"]) > utils.FaceToIndex(currentLocation["direction"])) then
+--                 for _, turtle in ipairs(entry["turtles"]) do
+--                     if not utils.TableContains(problematicTurtles, turtle)
+--                     and not utils.TableContains(currentLocation["turtles"], turtle) then
+--                         table.insert(problematicTurtles, turtle)
+--                     end
+--                 end
+--             end
+--         end
+-- 
+--         if #problematicTurtles == 0 then 
+--             return
+--         end
+--         
+--         local highestDiff = 0
+--         for _, problematicTurtle in ipairs(problematicTurtles) do
+--             for intersectionIndex, problematicStep in ipairs(problematicTurtle["journeyPath"]) do
+--                 if problematicStep["vector"] == step["vector"] then
+--                     local diff = intersectionIndex - problematicTurtle["journeyStepIndex"]
+--                     if diff <= 3 and diff > highestDiff then                   
+--                         highestDiff = diff
+--                         mergePossible = false
+--                     end
+--                 end
+--             end
+--         end
+-- 
+--         if not mergePossible then
+--             os.sleep(highestDiff)
+--         end
+-- 
+--     until not mergePossible
+-- end
 
 local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i, ws) then
@@ -249,6 +250,9 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
     TurtleObject["busy"] = true
     
     repeat
+        local startTime = os.epoch("utc")
+        local syncDelay = 0
+
         -- If journeyPath not yet set, request it from the server
         if not TurtleObject["journeyPath"] then
             ws.send(textutils.serializeJSON({
@@ -260,7 +264,8 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
             }))
 
             local message = utils.listenForWsMessage("NewPath")
-            local journeyPath = message.payload
+            local journeyPath = message.payload.journeyPath
+            syncDelay = message.payload.timeToWait or 0
             
             if journeyPath == "no path found" then
                 print("I am trapped :(")
@@ -280,15 +285,18 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
             print("Best path found with " .. #journeyPath .. " steps.")
         end
 
+        local calculationTime = os.epoch("utc") - startTime
+        local timeToWait = syncDelay - calculationTime
+        if timeToWait > 0 then
+            print("Sleeping for " .. timeToWait/1000 .. " seconds before starting the journey.")
+            os.sleep(timeToWait)
+        end
+
         -- Follow the current journeyPath
         while TurtleObject["journeyPath"] and TurtleObject["journeyStepIndex"] <= #TurtleObject["journeyPath"] do
             local step = TurtleObject["journeyPath"][TurtleObject["journeyStepIndex"]]
             
-            if not step.special.lastBlock or step.special.lastBlock == "go" then
-                if step.special.intersection then
-                    intersectionHandle(step, TurtleObject, TurtleObject["journeyStepIndex"], ws)
-                end
-                
+            if TurtleObject["journeyStepIndex"] < #TurtleObject["journeyPath"] or step.special.lastBlock == "go" then
                 if handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws) == false then
                     break
                 end

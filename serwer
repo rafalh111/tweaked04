@@ -82,6 +82,7 @@ server.on('connection', socket => {
             
                 if (inspectVariables.blocked && !WorldMap[vectorKey]) {
                     WorldMap[vectorKey] = inspectVariables.data;
+                    WorldMap[vectorKey].blocked = true; // Ensure blocked status is set
                     change = true;
                 } else if (!inspectVariables.blocked && WorldMap[vectorKey]) {
                     delete WorldMap[vectorKey];
@@ -112,13 +113,17 @@ server.on('connection', socket => {
             const destination = message.payload.destination;
             const turtleID = message.payload.TurtleObject.turtleID;
 
-            const journeyPath = aStar(
+            const journeyData = aStar(
                 TurtleObject.position,
                 destination,
                 TurtleObject.fuel,
                 WorldMap, 
-            )
+            );
 
+            const journeyPath = journeyData ? journeyData.journeyPath : null;
+            const totalTimeToWait = journeyData ? journeyData.totalTimeToWait : 0;
+
+            const returnMessage = {};
             if (journeyPath) {
                 for (const step of journeyPath) {
                     if (!WorldMap[step.vector]) {
@@ -132,12 +137,12 @@ server.on('connection', socket => {
 
                     fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
                 }
-                const returnMessage = {
+                returnMessage = {
                     type : 'NewPath',
-                    payload : journeyPath
+                    payload : {journeyPath: journeyPath, timeToWait: totalTimeToWait}
                 }
             } else {
-                const returnMessage = {
+                returnMessage = {
                     type : 'NewPath',
                     payload : 'no path found'
                 }
@@ -159,14 +164,19 @@ server.on('connection', socket => {
                 }
 
                 WorldMap[key].turtles = WorldMap[key].turtles.filter(id => id !== turtleID); // Remove the turtle ID from the list
-                WorldMap[key]['flowDirection'] = WorldMap[key]['flowDirection'].filter(id => id !== step['direction']); // Remove the direction from the list
                 if (WorldMap[key].turtles.length === 0) {
                     delete WorldMap[key];                    
                 }
-
+                
                 
             }
 
+            const returnMessage = {type: 'obstacle on your way'};
+
+            for (const turtleID in WorldMap[journeyPath[journeyPath.length - 1]['vector']['turtles']]) {
+                findTurtleLogs(computercraftDirectory, [turtleID])['socket'].send(JSON.stringify(returnMessage));
+            }
+            
             fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
         }
 

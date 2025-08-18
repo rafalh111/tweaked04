@@ -1,14 +1,10 @@
 import {
     Vector, Heap, MultiManhattanDistance,
-    duwsenDirectionVectors, FaceToIndex, 
-    getNeighbors
+    duwsenDirectionVectors, FaceToIndex,
+    getNeighbors, oppositeDirection
 } from './utils.js';
 
-function flowCalculation(obstacle, neighbor) {
-    const neighborDir = neighbor.direction;
-    const flowDir = obstacle.direction;
-
-    // Perfect alignment with flow
+function flowCalculation(flowDir, neighborDir) {
     if (neighborDir === flowDir) {
         return "PathFlow";
     }
@@ -27,7 +23,7 @@ function flowCalculation(obstacle, neighbor) {
         const obstacleFlowIndex = FaceToIndex(flowDir);
         const neighborFlowIndex = FaceToIndex(neighborDir);
         if (obstacleFlowIndex !== null && neighborFlowIndex !== null) {
-            const diff = ((obstacleFlowIndex - neighborFlowIndex) + 4) % 4;
+            const diff = (obstacleFlowIndex - neighborFlowIndex + 4) % 4;
             if (diff === 2) {
                 return "AgainstFlow";
             }
@@ -46,18 +42,25 @@ function isDestination(destinations, currentKey) {
     return false;
 }
 
+function unixTimeCalculation(stepCount, turnCount, digCount) {
+    return Date.now() + stepCount * 400 + turnCount * 200 + digCount * 500;
+}
+
 export function aStar(config, WorldMap = {}, turtleObject) {
+    // --- QUEUE INIT ---
     const queue = new Heap();
     queue.push({
         vector: config.beginning,
         weight: MultiManhattanDistance(config.beginning, config.destinations),
         stepCount: 0,
         turnCount: 0,
-        direction: config.initialDirection
+        digCount: 0,
+        direction: config.initialDirection,
+        turtles: {}
     });
 
     const cameFrom = {};
-    const visited = { [config.beginning.toString()]: true };
+    const bestCost = { [config.beginning.toString()]: queue.items[0].weight };
 
     let loopCount = 0;
 
@@ -67,35 +70,63 @@ export function aStar(config, WorldMap = {}, turtleObject) {
         const current = queue.pop();
         const currentKey = current.vector.toString();
 
-        // Periodic yield like Lua (optional in JS, here just a placeholder)
-        if (loopCount % 1000 === 0) {
-            // Simulated yield if running in async environment
-            // await new Promise(r => setTimeout(r, 0));
+        const InitialWeight = MultiManhattanDistance(current.vector, config.destinations);
+
+        // Periodic checks
+        if (loopCount % 100000 === 0) {
+            if (!config.reverseCheck && current.weight > InitialWeight * 2 && !config.dig) {
+                if (config.isReverse) return false;
+
+                let reachable = false;
+                for (const destination of config.destinations) {
+                    const reverseConfig = {
+                        beginning: destination,
+                        destinations: [config.beginning],
+                        initialDirection: oppositeDirection(current.direction),
+                        isReverse: true,
+                        reverseCheck: true
+                    };
+
+                    if (aStar(reverseConfig, WorldMap, turtleObject)) {
+                        reachable = true;
+                        break;
+                    }
+                }
+
+                if (!reachable) {
+                    console.log("The destinations is unreachable.");
+                    return false;
+                }
+
+                config.reverseCheck = true;
+            }
         }
 
         // PATH RECONSTRUCTION
         if (isDestination(config.destinations, currentKey)) {
             const journeyPath = [];
+            const totalTimeToWait = current.timeToWait || 0;
 
             let node = current;
             while (node) {
-                delete node.weight;
+                const journeyStep = {
+                    vector: node.vector,
+                    turtles: node.turtles || {}
+                };
 
                 if (turtleObject) {
-                    node.turtles = node.turtles || [];
-                    node.turtles.push(turtleObject.id);
+                    journeyStep.turtles[turtleObject.id] = {
+                        direction: node.direction,
+                        unixTime: unixTimeCalculation(node.stepCount, node.turnCount, node.digCount),
+                    };
                 }
 
-                journeyPath.unshift(node);
+                journeyPath.unshift(journeyStep);
                 node = cameFrom[node.vector.toString()];
             }
 
-            journeyPath.shift();
-            if (journeyPath.length > 0) {
-                journeyPath[journeyPath.length - 1].special = { lastBlock: true };
-            }
-
-            return journeyPath;
+            journeyPath.shift(); // remove starting point
+            return { journeyPath, totalTimeToWait };
         }
 
         // QUEUE BUILD
@@ -105,45 +136,72 @@ export function aStar(config, WorldMap = {}, turtleObject) {
             for (const neighborVector of neighborVectors) {
                 const neighborKey = neighborVector.toString();
 
-                // Skip if already visited
-                if (visited[neighborKey]) continue;
-                // Skip if WorldMap entry exists without a direction
-                if (WorldMap[neighborKey] && !WorldMap[neighborKey].direction) continue;
-
-                // NEIGHBOR INIT
+                // Init
+                const directionKey = neighborVector.subtract(current.vector).toString();
                 const neighbor = {
-                    vector: neighborVector,
-                    turnCount: current.turnCount,
+                    turtles: (WorldMap[neighborKey] && WorldMap[neighborKey].turtles) || {},
+                    direction: duwsenDirectionVectors[directionKey],
                     stepCount: current.stepCount + 1,
-                    direction: duwsenDirectionVectors[
-                        neighborVector.subtract(current.vector).toString()
-                    ]
+                    turnCount: current.turnCount || 0,
+                    digCount: current.digCount || 0,
+                    vector: neighborVector,
+                    flowResistance: 0,
+                    timeToWait: 0,
+                    weight: 0,
                 };
 
+                // Blocked check
+                if (WorldMap[neighborKey] && WorldMap[neighborKey].blocked) {
+                    if (!config.dig) continue;
+                    neighbor.digCount = current.digCount + 1;
+                }
+
                 // FLOW
-                let flowResistance = 0;
-                if (WorldMap[neighborKey] && WorldMap[neighborKey].direction) {
-                    const flow = flowCalculation(WorldMap[neighborKey], neighbor);
+                for (const tid in neighbor.turtles) {
+                    const turtle = neighbor.turtles[tid];
+                    const timeDiff = Math.abs(
+                        unixTimeCalculation(turtle.stepCount, turtle.turnCount, turtle.digCount) - turtle.unixTime
+                    );
+
+                    if (timeDiff < 5000) {
+                        neighbor.flowResistance += 10;
+                        neighbor.timeToWait = Math.max(neighbor.timeToWait, timeDiff);
+                    }
+
+                    const flow = flowCalculation(turtle.direction, neighbor.direction);
                     if (flow === "AgainstFlow") {
-                        flowResistance += 2; // Penalize like Lua, not block
+                        neighbor.flowResistance += 2;
                     } else if (flow === "PathFlow") {
-                        flowResistance -= 1;
+                        neighbor.flowResistance -= 1;
                     } else {
-                        flowResistance += 1;
+                        neighbor.flowResistance += 1;
                     }
                 }
 
                 // TURN
-                let turnCount = neighbor.turnCount;
-                if (current.direction !== neighbor.direction) {
-                    turnCount += 1;
+                if (!(neighbor.direction === "up" || neighbor.direction === "down") ||
+                    current.direction === neighbor.direction) {
+                    const currentDirIndex = FaceToIndex(current.direction);
+                    const neighborDirIndex = FaceToIndex(neighbor.direction);
+
+                    const diff = (neighborDirIndex - currentDirIndex + 4) % 4;
+                    if (diff === 1 || diff === 3) {
+                        neighbor.turnCount += 1;
+                    } else if (diff === 2) {
+                        neighbor.turnCount += 2;
+                    }
                 }
 
                 // WEIGHT
                 const estimatedDistance = MultiManhattanDistance(neighborVector, config.destinations);
-                neighbor.weight = estimatedDistance + neighbor.stepCount + turnCount + flowResistance;
+                neighbor.weight = estimatedDistance +
+                                  neighbor.stepCount +
+                                  neighbor.turnCount +
+                                  neighbor.flowResistance;
 
-                visited[neighborKey] = true;
+                if (neighbor.weight >= (bestCost[neighborKey] ?? Infinity)) continue;
+
+                bestCost[neighborKey] = neighbor.weight;
                 cameFrom[neighborKey] = current;
                 queue.push(neighbor);
             }
