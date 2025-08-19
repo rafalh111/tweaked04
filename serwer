@@ -110,12 +110,13 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'Journey') {
-            const destination = message.payload.destination;
+            const destinations = message.payload.destinations;
             const turtleID = message.payload.TurtleObject.turtleID;
+            const doAtTheEnd = message.payload.doAtTheEnd || 'go';
 
             const journeyData = aStar(
                 TurtleObject.position,
-                destination,
+                destinations,
                 TurtleObject.fuel,
                 WorldMap, 
             );
@@ -125,21 +126,25 @@ server.on('connection', socket => {
 
             const returnMessage = {};
             if (journeyPath) {
-                for (const step of journeyPath) {
-                    if (!WorldMap[step.vector]) {
-                        WorldMap[step.vector] = step;
-                        continue;
-                    }
 
-                    if (!WorldMap[step.vector].turtles.includes(turtleID)) {
+                for (let i = 0; i < journeyPath.length; i++) {
+                    const step = journeyPath[i];
+
+                    if (i === journeyPath.length - 1 && doAtTheEnd !== 'go') {
+                        break; // Skip the last step if doAtTheEnd is not 'go'
+                    } else if (!WorldMap[step.vector]) {
+                        WorldMap[step.vector] = {turtles : step.turtles || []};
+                        continue;
+                    } else if (!WorldMap[step.vector].turtles.includes(turtleID)) {
                         WorldMap[step.vector].turtles.push(turtleID);
                     }
 
                     fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
                 }
+
                 returnMessage = {
                     type : 'NewPath',
-                    payload : {journeyPath: journeyPath, timeToWait: totalTimeToWait}
+                    payload : {journeyPath: journeyPath.where(step => step.turtles === null), timeToWait: totalTimeToWait}
                 }
             } else {
                 returnMessage = {
@@ -167,14 +172,13 @@ server.on('connection', socket => {
                 if (WorldMap[key].turtles.length === 0) {
                     delete WorldMap[key];                    
                 }
-                
-                
             }
-
+            
             const returnMessage = {type: 'obstacle on your way'};
-
-            for (const turtleID in WorldMap[journeyPath[journeyPath.length - 1]['vector']['turtles']]) {
-                findTurtleLogs(computercraftDirectory, [turtleID])['socket'].send(JSON.stringify(returnMessage));
+            const lastStep = journeyPath[journeyPath.length - 1];
+            const turtles = findTurtleLogs(computercraftDirectory, WorldMap[lastStep['vector']]['turtles']);
+            for (const turtleID in turtles) {
+                turtles[turtleID]['socket'].send(JSON.stringify(returnMessage));
             }
             
             fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));

@@ -246,11 +246,12 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     return true
 end
 
-local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
+local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
     TurtleObject["busy"] = true
     
     repeat
         local startTime = os.epoch("utc")
+        local closestDestination = vector.new()
         local syncDelay = 0
 
         -- If journeyPath not yet set, request it from the server
@@ -259,15 +260,16 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
                 type = "Journey",
                 payload = {
                     TurtleObject = TurtleObject,
-                    destination = destination
+                    destinations = destinations,
+                    doAtTheEnd = doAtTheEnd
                 }
             }))
 
             local message = utils.listenForWsMessage("NewPath")
             local journeyPath = message.payload.journeyPath
             syncDelay = message.payload.timeToWait or 0
-            
-            if journeyPath == "no path found" then
+
+            if message.payload == "no path found" then
                 print("I am trapped :(")
                 TurtleObject["journeyStepIndex"] = nil
                 TurtleObject["journeyPath"] = nil
@@ -275,9 +277,10 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
                 return false
             end
 
-            if not doAtTheEnd or doAtTheEnd ~= "go" then
-                destination = journeyPath[#journeyPath - 1].vector
+            if doAtTheEnd ~= "go" then
+                table.remove(journeyPath, #journeyPath) -- Remove the last step if it's not "go"
             end
+            closestDestination = journeyPath[#journeyPath].vector
 
             TurtleObject["journeyPath"] = journeyPath
             TurtleObject["journeyStepIndex"] = 1
@@ -322,7 +325,7 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
             }
         }))
 
-    until TurtleObject["position"]:equals(destination)
+    until TurtleObject["position"]:equals(closestDestination)
 
     TurtleObject["busy"] = false
     utils.SerializeAndSave(TurtleObject, "turtleLog")
@@ -330,7 +333,7 @@ local function subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, i
     return true
 end
 
-local function checkForInterruptions(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
+local function checkForInterruptions(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
     while true do
         local message = utils.listenForWsMessages({
             "obstacle on your way",
@@ -351,15 +354,15 @@ local function checkForInterruptions(TurtleObject, WorldMap, destination, doAtTh
     end
 end
 
-function turtleLib.Journey(TurtleObject, WorldMap, destination, doAtTheEnd, ws)
+function turtleLib.Journey(TurtleObject, WorldMap, destinations, doAtTheEnd, ws)
     local interruption = { false }
     parallel.waitForAny(
         function()
-            subJourney(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
+            subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
         end,
 
         function()
-            checkForInterruptions(TurtleObject, WorldMap, destination, doAtTheEnd, ws, interruption)
+            checkForInterruptions(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
         end
     )
 end

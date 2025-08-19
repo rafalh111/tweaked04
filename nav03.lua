@@ -3,6 +3,10 @@ local utils = require("utils")
 
 local nav = {}
 
+StepTime = 400
+TurnTime = 400
+DigTime = 500
+
 local function flowCalculation(flowDir, neighborDir)
     -- Perfect alignment with flow
     if neighborDir == flowDir then
@@ -41,10 +45,6 @@ local function isDestination(destinations, currentKey)
     return false
 end
 
-local function unixTimeCalculation(stepCount, turnCount, digCount)
-    return os.epoch("utc") + stepCount * 400 + turnCount * 200 + digCount * 500
-end
-
 function nav.aStar(config, WorldMap, turtleObject)
     if not WorldMap then
         WorldMap = {}
@@ -52,12 +52,18 @@ function nav.aStar(config, WorldMap, turtleObject)
 
     ---/*%$# QUEUE INIT #$%*\---
     local queue = {}
-    queue[1] = {}
-    queue[1]["vector"] = config["beginning"]
-    queue[1]["weight"] = utils.MultiManhattanDistance(config["beginning"], config["destinations"])
-    queue[1]["stepCount"] = 0
-    queue[1]["turnCount"] = 0
-    queue[1]["direction"] = config["initialDirection"]
+    
+    queue[1] = {
+        vector = config["beginning"],
+        direction = config["initialDirection"],
+        stepCount = 0,
+        turnCount = 0,
+        unixArriveTime = os.epoch("utc"),
+        weight = utils.MultiManhattanDistance(config["beginning"], config["destinations"]),
+        turtles = WorldMap[config["beginning"]]["turtles"] or {},
+        syncDelay = 0
+    }
+
     setmetatable(queue, utils.Heap)
 
     local cameFrom = {}  -- key: position string, value: parent neighbor
@@ -114,28 +120,33 @@ function nav.aStar(config, WorldMap, turtleObject)
         
         ---/*%$# PATH RECONSTRUCTION #$%*\---
         if isDestination(config["destinations"], currentKey) then
+            local totalSyncDelay = current["syncDelay"] or 0
             local journeyPath = {}
-            local totalTimeToWait = current["timeToWait"] or 0
 
-            local node = current
-            while node do
+            while current do
                 local journeyStep = {}
-                journeyStep["vector"] = node["vector"]
-                journeyStep["turtles"] = node["turtles"] or {}
+                journeyStep["vector"] = current["vector"]
+                journeyStep["direction"] = current["direction"]
+                journeyStep["turtles"] = current["turtles"] or {}
 
                 if turtleObject then
                     journeyStep["turtles"][turtleObject["id"]] = {
-                        direction = node["direction"],
-                        unixTime = unixTimeCalculation(node["stepCount"], node["turnCount"], node["digCount"]),
+                        direction = current["direction"],
+                        unixArriveTime = current["unixArriveTime"],
+                        unixLeaveTime = journeyPath[1]["turtles"][turtleObject["id"]]["unixArriveTime"] or nil
                     }
                 end
-
+                
                 table.insert(journeyPath, 1, journeyStep)
-                node = cameFrom[node["vector"]:tostring()]
+                current = cameFrom[current["vector"]:tostring()]
+            end
+
+            if turtleObject and config.doAtTheEnd and not utils.TableContains(config.doAtTheEnd, "go") then
+                journeyPath[#journeyPath - 1]["turtles"][turtleObject["id"]]["unixArriveTime"] = nil
             end
 
             table.remove(journeyPath, 1)
-            return {journeyPath, totalTimeToWait}
+            return {journeyPath = journeyPath, totalSyncDelay = totalSyncDelay}
         end
 
         ---/*%$# QUEUE BUILD #$%*\---
@@ -148,15 +159,14 @@ function nav.aStar(config, WorldMap, turtleObject)
                 -- NEIGHBOR INIT
                 local directionKey = neighborVector:sub(current.vector):tostring()
                 local neighbor = {
-                    turtles = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {},
-                    direction = utils.duwsenDirectionVectors[directionKey],
-                    stepCount = current.stepCount + 1,
-                    turnCount = current.turnCount or 0,
-                    digCount = current.digCount or 0,
                     vector = neighborVector,
-                    flowResistance = 0,
-                    timeToWait = 0,
-                    weight = 0,
+                    direction = utils["duwsenDirectionVectors"][directionKey],
+                    stepCount = current["stepCount"] + 1,
+                    turnCount = current["turnCount"],
+                    unixArriveTime = current["unixArriveTime"] + StepTime,
+                    weight = current["weight"] + utils.MultiManhattanDistance(neighborVector, config["destinations"]) + 1,
+                    turtles = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {},
+                    syncDelay = current["syncDelay"]
                 }
 
                 -- BLOCKED NEIGHBOR CHECK
@@ -165,32 +175,8 @@ function nav.aStar(config, WorldMap, turtleObject)
                         goto continue  -- Skip blocked neighbors unless digging is allowed
                     end
 
-                    neighbor["digCount"] = current["digCount"] + 1
-                end
-                
-
-                -- FLOW
-                for _, turtle in pairs(neighbor["turtles"]) do
-                    local timeDiff = math.abs(
-                        unixTimeCalculation(turtle["stepCount"], 
-                                            turtle["turnCount"], 
-                                            turtle["digCount"]) - turtle["unixTime"]
-                    
-                    )
-
-                    if timeDiff < 5000 then
-                        neighbor["flowResistance"] = neighbor["flowResistance"] + 10
-                        neighbor["timeToWait"] = math.max(neighbor["timeToWait"], timeDiff)
-                    end
-
-                    local flow = flowCalculation(turtle["direction"], neighbor["direction"])
-                    if flow == "AgainstFlow" then
-                        neighbor["flowResistance"] = neighbor["flowResistance"] + 2
-                    elseif flow == "PathFlow" then
-                        neighbor["flowResistance"] = neighbor["flowResistance"] - 1
-                    else
-                        neighbor["flowResistance"] = neighbor["flowResistance"] + 1
-                    end
+                    neighbor["weight"] = neighbor["weight"] + 100
+                    neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + DigTime
                 end
 
                 -- TURN
@@ -202,19 +188,41 @@ function nav.aStar(config, WorldMap, turtleObject)
 
                     local diff = (neighborDirectionIndex - currentDirectionIndex) % 4
                     if diff == 1 or diff == 3 then
+                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime
                         neighbor["turnCount"] = neighbor["turnCount"] + 1
+                        neighbor["weight"] = neighbor["weight"] + 1
                     elseif diff == 2 then
+                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime * 2
                         neighbor["turnCount"] = neighbor["turnCount"] + 2
+                        neighbor["weight"] = neighbor["weight"] + 2
                     end
                 end
 
-                -- WEIGHT
-                local estimatedDistance = utils.MultiManhattanDistance(neighborVector, config["destinations"])
-                neighbor["weight"] = estimatedDistance + 
-                                    neighbor["stepCount"] + 
-                                    neighbor["turnCount"] + 
-                                    neighbor["flowResistance"]
-                ----------------------------------------------
+                -- FLOW
+                for _, turtle in pairs(neighbor["turtles"]) do
+                    local flow = flowCalculation(turtle["direction"], neighbor["direction"])
+                    if flow == "PathFlow" then
+                        neighbor["weight"] = neighbor["weight"] - 1
+                    elseif flow == "MergeFromSide" then
+                        neighbor["weight"] = neighbor["weight"] + 1
+                    elseif flow == "AgainstFlow" then
+                        neighbor["weight"] = neighbor["weight"] + 2
+                    end
+                    
+                    if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
+                        if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                            local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"] + 200
+                            neighbor["weight"] = neighbor["weight"] + 10
+                            neighbor["syncDelay"] = neighbor["syncDelay"] + syncDelay
+                            neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
+                        elseif turtle["unixLeaveTime"] == nil then
+                            neighbor["weight"] = neighbor["weight"] + 100
+                        end
+                    end
+
+                end
+
+
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
                     goto continue  -- This path is not better than what we already have
                 end
