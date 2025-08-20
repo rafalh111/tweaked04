@@ -9,31 +9,51 @@ local parallel
 local turtleLib = {}
 
 function turtleLib.LoadTurtleState(ws)
-    local TurtleObject = {}
+    local realTurtle = {}   -- this will hold actual data
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
 
+    -- TurtleObject table that user code will interact with
+    local TurtleObject = {}
+    setmetatable(TurtleObject, {
+        __index = realTurtle, -- read from real state
+        __newindex = function(_, key, value)
+            realTurtle[key] = value  -- update real state
+            utils.SerializeAndSave(realTurtle, "turtleLog") -- auto-save
+        end
+    })
+
     if turtleLog then
-        TurtleObject = turtleLog
-        TurtleObject["position"] = vector.new(TurtleObject["position"].x, TurtleObject["position"].y, TurtleObject["position"].z)
+        for k, v in pairs(turtleLog) do
+            realTurtle[k] = v
+        end
+        realTurtle["position"] = vector.new(
+            realTurtle["position"].x,
+            realTurtle["position"].y,
+            realTurtle["position"].z
+        )
     else
-        rednet.send(TurtleObject["baseID"], TurtleObject, "TurtleBorn")
+        rednet.send(realTurtle["baseID"], realTurtle, "TurtleBorn")
         local senderID, message, protocol = rednet.receive()
         if protocol == "Completion1" then
             message = textutils.unserialize(message)
-            TurtleObject = message
+            for k, v in pairs(message) do
+                realTurtle[k] = v
+            end
         end
 
-        ws.send(textutils.serializeJSON({type = "turtleBorn", payload = TurtleObject}))
+        ws.send(textutils.serializeJSON({type = "turtleBorn", payload = realTurtle}))
         local event, p1, p2, p3 = os.pullEvent()
         message = textutils.unserializeJSON(p2)
         if message.type == "Completion2" then
-            TurtleObject = message.payload
+            for k, v in pairs(message.payload) do
+                realTurtle[k] = v
+            end
         end
-        
-        utils.SerializeAndSave(TurtleObject, "turtleLog")
+
+        utils.SerializeAndSave(realTurtle, "turtleLog")
     end
 
-    return TurtleObject
+    return TurtleObject -- always return TurtleObject
 end
 
 function turtleLib.Sonar(TurtleObject, WorldMap, InFront, Above, Below, ws)
@@ -85,68 +105,96 @@ function turtleLib.SafeTurn(TurtleObject, WorldMap, direction)
 
     turtleLib.Sonar(TurtleObject, WorldMap, true, false, false)
 
-    utils.SerializeAndSave(TurtleObject, "turtleLog")
+    
 end
 
 function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
-    local success = false
-    if direction == "forward" and turtle.forward() then
-        success = true
-        turtleLib.Sonar(TurtleObject, WorldMap, true, true, true)
-        TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors[TurtleObject["face"]])
-    elseif direction == "up" and turtle.up() then
-        success = true
-        turtleLib.Sonar(TurtleObject, WorldMap, true, true, false)
-        TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["up"])
-    elseif direction == "down" and turtle.down() then
-        success = true
-        turtleLib.Sonar(TurtleObject, WorldMap, true, false, true)
-        TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["down"])
-    end
-    
-    if success then
-        if i then
-            TurtleObject["journeyStepIndex"] = i
+    local actionTable = {}
+    actionTable["forward"] = function()
+        if not turtle.detect() then
+            turtle.forward()
+            TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors[TurtleObject["face"]])
+
+            if i then
+                TurtleObject["journeyStepIndex"] = i
+            end
+
+            turtleLib.Sonar(TurtleObject, WorldMap, true, true, true, ws)
+            
+            return true
+        else
+            return false
         end
-
-        utils.SerializeAndSave(TurtleObject, "turtleLog")
-    else
-        turtleLib.Sonar(TurtleObject, WorldMap, true, true, true)
     end
 
-    return success
-end
+    actionTable["up"] = function()
+        if not turtle.detectUp() then
+            turtle.up()
+            TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["up"])
 
-function turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i, ws)
-    local success
+            if i then
+                TurtleObject["journeyStepIndex"] = i
+            end
+
+            turtleLib.Sonar(TurtleObject, WorldMap, true, true, false, ws)
+            
+            return true
+        else
+            return false
+        end
+    end
+
+    actionTable["down"] = function()
+        if not turtle.detectDown() then
+            turtle.down()
+            TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["down"])
+
+            if i then
+                TurtleObject["journeyStepIndex"] = i
+            end
+
+            turtleLib.Sonar(TurtleObject, WorldMap, true, false, true, ws)
+            
+            return true
+        else
+            return false
+        end
+    end
     
-    if targetFace == "up" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "up", i, ws)
-    elseif targetFace == "down" then
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "down", i, ws)
-    else
-        local diff = (utils.FaceToIndex(targetFace) - TurtleObject["faceIndex"]) % 4
-        
-        if diff ~= 0 then
-            if diff == 1 then
-                turtleLib.SafeTurn(TurtleObject, WorldMap, "right")
-            elseif diff == 2 then
-                if math.random(1, 2) == 1 then
-                    turtleLib.SafeTurn(TurtleObject, WorldMap, "left")
-                    turtleLib.SafeTurn(TurtleObject, WorldMap, "left")
-                else
-                    turtleLib.SafeTurn(TurtleObject, WorldMap, "right")
-                    turtleLib.SafeTurn(TurtleObject, WorldMap, "right")
-                end
-            else
-                turtleLib.SafeTurn(TurtleObject, WorldMap, "left")
+    actionTable["left"] = function()
+        turtle.turnLeft()
+        TurtleObject["faceIndex"] = (TurtleObject["faceIndex"] - 2) % 4 + 1
+        TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
+        actionTable["forward"]()
+    end
+
+    actionTable["right"] = function()
+        turtle.turnRight()
+        TurtleObject["faceIndex"] = TurtleObject["faceIndex"] % 4 + 1
+        TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
+        actionTable["forward"]()
+    end
+
+    actionTable["backward"] = function()
+        if math.random(1, 2) == 1 then
+            for i = 1, 2 do
+                turtle.turnLeft()
+                TurtleObject["faceIndex"] = (TurtleObject["faceIndex"] - 2) % 4 + 1
+                turtleLib.Sonar(TurtleObject, WorldMap, true, false, false, ws)
+            end
+        else
+            for i = 1, 2 do
+                turtle.turnRight()
+                TurtleObject["faceIndex"] = TurtleObject["faceIndex"] % 4 + 1
+                turtleLib.Sonar(TurtleObject, WorldMap, true, false, false, ws)
             end
         end
-        
-        success = turtleLib.SafeMove(TurtleObject, WorldMap, "forward", i, ws)
     end
+end
 
-    return success
+function turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws)
+    local flrDirection = utils.neswudToFlrud(neswudDirection)
+    return turtleLib.SafeMove(TurtleObject, WorldMap, flrDirection, i, ws)
 end
 
 function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
@@ -157,75 +205,14 @@ function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
         return false
     end
     
-    local targetFace = utils.duwsenDirectionVectors[delta:tostring()]
+    local neswudDirection = utils.duwsenDirectionVectors[delta:tostring()]
 
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, targetFace, i, ws) then
+    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws) then
         return false
     end
 
     return true
 end
-
--- local function intersectionHandle(step, turtleObject, i, ws)
---     repeat
---         local mergePossible = true
---         
---         -- get all intersection entries
---         local intersectionEntries = {}
---         for neighborDirection, neighborDirectionVector in ipairs(utils.neswudDirectionVectors) do
---             if neighborDirection ~= step["direction"] then
---                 table.insert(intersectionEntries, step["vector"]:add(neighborDirectionVector))
---             end
---         end
---         ws.send(textutils.serializeJSON({type = "intersection", payload = intersectionEntries}))
---         local entriesDataKV = utils.listenForWsMessage("intersectionData")
---         
---         -- remove the ones without turtles
---         for vectorKey, entry in pairs(entriesDataKV) do
---             if #entry["turtles"] == 0 then
---                 entriesDataKV[vectorKey] = nil
---             end
---         end
---         
---         -- get all turtles with higher priority
---         local problematicTurtles = {}
---         local currentLocation = turtleObject["journeyPath"][i - 1]
---         for _, entry in pairs(entriesDataKV) do
---             if #entry["turtles"] > #currentLocation["turtles"]
---             or (#entry["turtles"] == #currentLocation["turtles"]
---             and utils.FaceToIndex(entry["direction"]) > utils.FaceToIndex(currentLocation["direction"])) then
---                 for _, turtle in ipairs(entry["turtles"]) do
---                     if not utils.TableContains(problematicTurtles, turtle)
---                     and not utils.TableContains(currentLocation["turtles"], turtle) then
---                         table.insert(problematicTurtles, turtle)
---                     end
---                 end
---             end
---         end
--- 
---         if #problematicTurtles == 0 then 
---             return
---         end
---         
---         local highestDiff = 0
---         for _, problematicTurtle in ipairs(problematicTurtles) do
---             for intersectionIndex, problematicStep in ipairs(problematicTurtle["journeyPath"]) do
---                 if problematicStep["vector"] == step["vector"] then
---                     local diff = intersectionIndex - problematicTurtle["journeyStepIndex"]
---                     if diff <= 3 and diff > highestDiff then                   
---                         highestDiff = diff
---                         mergePossible = false
---                     end
---                 end
---             end
---         end
--- 
---         if not mergePossible then
---             os.sleep(highestDiff)
---         end
--- 
---     until not mergePossible
--- end
 
 local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i, ws) then
@@ -267,7 +254,7 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
 
             local message = utils.listenForWsMessage("NewPath")
             local journeyPath = message.payload.journeyPath
-            syncDelay = message.payload.timeToWait or 0
+            syncDelay = message.payload.syncDelay or 0
 
             if message.payload == "no path found" then
                 print("I am trapped :(")
@@ -293,6 +280,8 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
         if timeToWait > 0 then
             print("Sleeping for " .. timeToWait/1000 .. " seconds before starting the journey.")
             os.sleep(timeToWait)
+        elseif timeToWait < 0 and syncDelay > 0 then
+            print("Warning: Sync delay is negative, calculation took longer than expected.")
         end
 
         -- Follow the current journeyPath
@@ -328,7 +317,7 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
     until TurtleObject["position"]:equals(closestDestination)
 
     TurtleObject["busy"] = false
-    utils.SerializeAndSave(TurtleObject, "turtleLog")
+    
 
     return true
 end

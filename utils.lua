@@ -2,15 +2,37 @@
 
 local utils = {}
 
-utils.neswDirections = {"north", "east","south", "west"}
-utils.neswudDirections = {"north", "east","south", "west", "up", "down"}
+utils.neswudDirections = {
+    ["north"] = 1,
+    ["east"] = 2,
+    ["south"] = 3,
+    ["west"] = 4,
+    ["up"] = 5,
+    ["down"] = 6
+}
 
-function utils.FaceToIndex(face)
-    for index, direction in ipairs(utils.neswudDirections) do
-        if direction == face then
-            return index
-        end
+utils.FrbludDirections = {"forward", "right", "left", "back", "up", "down"}
+
+function utils.neswudToFrblud(startNeswudDirection, endNeswudDirection)
+    local startIndex = utils.neswudDirections[startNeswudDirection]
+    local endIndex = utils.neswudDirections[endNeswudDirection]
+
+    if startIndex == 5 or startIndex == 6 then
+        return startNeswudDirection
     end
+
+    local diff = (endIndex - startIndex) % 4
+    if diff == 0 then
+        return "forward"
+    elseif diff == 1 then
+        return "right"
+    elseif diff == 2 then
+        return "back"
+    elseif diff == 3 then
+        return "left"
+    end
+        
+    return nil
 end
 
 utils.neswudDirectionVectors = {
@@ -31,16 +53,15 @@ utils.duwsenDirectionVectors = {
     [vector.new(0, -1, 0):tostring()] = "down"
 }
 
-function utils.getNeighbors(centralVector)
-    return {
-        centralVector:add(vector.new(1, 0, 0)),
-        centralVector:add(vector.new(-1, 0, 0)),
-        centralVector:add(vector.new(0, 0, 1)),
-        centralVector:add(vector.new(0, 0, -1)),
-        centralVector:add(vector.new(0, 1, 0)),
-        centralVector:add(vector.new(0, -1, 0))
-    }
-end
+-- function utils.getcentralVector    return {
+--         centralVector:add(vector.new(1, 0, 0)),
+--         centralVector:add(vector.new(-1, 0, 0)),
+--         centralVector:add(vector.new(0, 0, 1)),
+--         centralVector:add(vector.new(0, 0, -1)),
+--         centralVector:add(vector.new(0, 1, 0)),
+--         centralVector:add(vector.new(0, -1, 0))
+--     }
+-- end
 
 function utils.listenForWsMessage(searchedFor)
     while true do

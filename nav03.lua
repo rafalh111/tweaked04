@@ -158,16 +158,16 @@ function nav.aStar(config, WorldMap, turtleObject)
 
                 -- NEIGHBOR INIT
                 local directionKey = neighborVector:sub(current.vector):tostring()
-                local neighbor = {
-                    vector = neighborVector,
-                    direction = utils["duwsenDirectionVectors"][directionKey],
-                    stepCount = current["stepCount"] + 1,
-                    turnCount = current["turnCount"],
-                    unixArriveTime = current["unixArriveTime"] + StepTime,
-                    weight = current["weight"] + utils.MultiManhattanDistance(neighborVector, config["destinations"]) + 1,
-                    turtles = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {},
-                    syncDelay = current["syncDelay"]
-                }
+                local neighbor = {}
+                neighbor["vector"] = neighborVector
+                neighbor["neswudDirection"] = utils["duwsenDirectionVectors"][directionKey]
+                neighbor["stepCount"] = current["stepCount"] + 1
+                neighbor["turnCount"] = current["turnCount"]
+                neighbor["unixArriveTime"] = current["unixArriveTime"] + StepTime
+                neighbor["weight"] = current["weight"] + utils.MultiManhattanDistance(neighborVector, config["destinations"]) + 1
+                neighbor["turtles"] = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {}
+                neighbor["syncDelay"] = current["syncDelay"]
+                neighbor["frbludDirection"] = utils.neswudToFrblud(current["face"], neighbor["neswudDirection"])
 
                 -- BLOCKED NEIGHBOR CHECK
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["blocked"] then           
@@ -180,11 +180,11 @@ function nav.aStar(config, WorldMap, turtleObject)
                 end
 
                 -- TURN
-                if not (neighbor["direction"] == "up" or neighbor["direction"] == "down") or
-                        current["direction"] == neighbor["direction"] then
+                if not (neighbor["neswudDirection"] == "up" or neighbor["neswudDirection"] == "down") or
+                        current["direction"] == neighbor["neswudDirection"] then
                     -------------------------------------------------------
                     local currentDirectionIndex = utils.FaceToIndex(current["direction"])
-                    local neighborDirectionIndex = utils.FaceToIndex(neighbor["direction"])
+                    local neighborDirectionIndex = utils.FaceToIndex(neighbor["neswudDirection"])
 
                     local diff = (neighborDirectionIndex - currentDirectionIndex) % 4
                     if diff == 1 or diff == 3 then
@@ -200,13 +200,17 @@ function nav.aStar(config, WorldMap, turtleObject)
 
                 -- FLOW
                 for _, turtle in pairs(neighbor["turtles"]) do
-                    local flow = flowCalculation(turtle["direction"], neighbor["direction"])
-                    if flow == "PathFlow" then
-                        neighbor["weight"] = neighbor["weight"] - 1
-                    elseif flow == "MergeFromSide" then
-                        neighbor["weight"] = neighbor["weight"] + 1
-                    elseif flow == "AgainstFlow" then
+                    if config["nonConformist"] then
                         neighbor["weight"] = neighbor["weight"] + 2
+                    else
+                        local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
+                        if flow == "PathFlow" then
+                            neighbor["weight"] = neighbor["weight"] - 1
+                        elseif flow == "MergeFromSide" then
+                            neighbor["weight"] = neighbor["weight"] + 1
+                        elseif flow == "AgainstFlow" then
+                            neighbor["weight"] = neighbor["weight"] + 2
+                        end
                     end
                     
                     if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
@@ -219,9 +223,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                             neighbor["weight"] = neighbor["weight"] + 100
                         end
                     end
-
                 end
-
 
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
                     goto continue  -- This path is not better than what we already have
@@ -230,7 +232,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                 bestCost[neighborKey] = neighbor["weight"]
                 cameFrom[neighborKey] = current
                 queue:push(neighbor)
-                
+
                 ::continue::
             end
         end
