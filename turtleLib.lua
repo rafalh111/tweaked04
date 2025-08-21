@@ -280,8 +280,16 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
         if timeToWait > 0 then
             print("Sleeping for " .. timeToWait/1000 .. " seconds before starting the journey.")
             os.sleep(timeToWait)
-        elseif timeToWait < 0 and syncDelay > 0 then
+        elseif timeToWait < 0 then
             print("Warning: Sync delay is negative, calculation took longer than expected.")
+            ws.send(textutils.serializeJSON({
+                type = "Delay Adjustment",
+                payload = {
+                    TurtleObject = TurtleObject,
+                    sendTime = os.epoch("utc"),
+                    delay = -timeToWait
+                }
+            }))
         end
 
         -- Follow the current journeyPath

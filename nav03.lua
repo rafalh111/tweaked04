@@ -55,13 +55,14 @@ function nav.aStar(config, WorldMap, turtleObject)
     
     queue[1] = {
         vector = config["beginning"],
-        direction = config["initialDirection"],
+        neswudDirection = config["initialDirection"],
         stepCount = 0,
-        turnCount = 0,
         unixArriveTime = os.epoch("utc"),
         weight = utils.MultiManhattanDistance(config["beginning"], config["destinations"]),
         turtles = WorldMap[config["beginning"]]["turtles"] or {},
-        syncDelay = 0
+        syncDelay = 0,
+        turtleFace = config["initialDirection"],
+        frbludDirection = nil
     }
 
     setmetatable(queue, utils.Heap)
@@ -84,7 +85,7 @@ function nav.aStar(config, WorldMap, turtleObject)
             if loopCount % 100000 == 0 then
                 if not config["reverseCheck"] and current["weight"] > InitialWeight * 2 and
                    not config["dig"] then
-                   -----------------------
+                    print("Current path is too long, checking for reverse path...")
                     if config["isReverse"] then
                         return false
                     end
@@ -126,12 +127,13 @@ function nav.aStar(config, WorldMap, turtleObject)
             while current do
                 local journeyStep = {}
                 journeyStep["vector"] = current["vector"]
-                journeyStep["direction"] = current["direction"]
+                journeyStep["frbludDirection"] = current["frbludDirection"]
                 journeyStep["turtles"] = current["turtles"] or {}
+                journeyStep["syncDelay"] = current["syncDelay"]
 
                 if turtleObject then
                     journeyStep["turtles"][turtleObject["id"]] = {
-                        direction = current["direction"],
+                        direction = current["neswudDirection"],
                         unixArriveTime = current["unixArriveTime"],
                         unixLeaveTime = journeyPath[1]["turtles"][turtleObject["id"]]["unixArriveTime"] or nil
                     }
@@ -142,7 +144,7 @@ function nav.aStar(config, WorldMap, turtleObject)
             end
 
             if turtleObject and config.doAtTheEnd and not utils.TableContains(config.doAtTheEnd, "go") then
-                journeyPath[#journeyPath - 1]["turtles"][turtleObject["id"]]["unixArriveTime"] = nil
+                journeyPath[#journeyPath - 1]["turtles"][turtleObject["id"]]["unixLeaveTime"] = nil
             end
 
             table.remove(journeyPath, 1)
@@ -150,25 +152,28 @@ function nav.aStar(config, WorldMap, turtleObject)
         end
 
         ---/*%$# QUEUE BUILD #$%*\---
-        if current["stepCount"] * 2 < turtleObject["fuel"] then
+        if current["fuelCost"] * 2 < turtleObject["fuel"] then
             local neighborVectors = utils.getNeighbors(current["vector"])
             
             for _, neighborVector in ipairs(neighborVectors) do
                 local neighborKey = neighborVector:tostring()
 
                 -- NEIGHBOR INIT
-                local directionKey = neighborVector:sub(current.vector):tostring()
                 local neighbor = {}
                 neighbor["vector"] = neighborVector
-                neighbor["neswudDirection"] = utils["duwsenDirectionVectors"][directionKey]
-                neighbor["stepCount"] = current["stepCount"] + 1
-                neighbor["turnCount"] = current["turnCount"]
+                neighbor["neswudDirection"] = utils["duwsenDirectionVectors"][neighborVector:sub(current.vector):tostring()]
+                neighbor["fuelCost"] = current["fuelCost"] + 1
                 neighbor["unixArriveTime"] = current["unixArriveTime"] + StepTime
                 neighbor["weight"] = current["weight"] + utils.MultiManhattanDistance(neighborVector, config["destinations"]) + 1
                 neighbor["turtles"] = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {}
-                neighbor["syncDelay"] = current["syncDelay"]
-                neighbor["frbludDirection"] = utils.neswudToFrblud(current["face"], neighbor["neswudDirection"])
-
+                neighbor["syncDelay"] = 0
+                if utils.neswudDirections[neighbor["neswudDirection"]] > 4 then
+                    neighbor["turtleFace"] = current["turtleFace"]
+                else
+                    neighbor["turtleFace"] = neighbor["neswudDirection"]
+                end
+                neighbor["frbludDirection"] = utils.neswudToFrblud(current["turtleFace"], neighbor["neswudDirection"])
+                
                 -- BLOCKED NEIGHBOR CHECK
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["blocked"] then           
                     if not config["dig"] then
@@ -180,22 +185,12 @@ function nav.aStar(config, WorldMap, turtleObject)
                 end
 
                 -- TURN
-                if not (neighbor["neswudDirection"] == "up" or neighbor["neswudDirection"] == "down") or
-                        current["direction"] == neighbor["neswudDirection"] then
-                    -------------------------------------------------------
-                    local currentDirectionIndex = utils.FaceToIndex(current["direction"])
-                    local neighborDirectionIndex = utils.FaceToIndex(neighbor["neswudDirection"])
-
-                    local diff = (neighborDirectionIndex - currentDirectionIndex) % 4
-                    if diff == 1 or diff == 3 then
-                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime
-                        neighbor["turnCount"] = neighbor["turnCount"] + 1
-                        neighbor["weight"] = neighbor["weight"] + 1
-                    elseif diff == 2 then
-                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime * 2
-                        neighbor["turnCount"] = neighbor["turnCount"] + 2
-                        neighbor["weight"] = neighbor["weight"] + 2
-                    end
+                if neighbor["frbludDirection"] == "right" or neighbor["frbludDirection"] == "left" then
+                    neighbor["weight"] = neighbor["weight"] + 1
+                    neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime
+                elseif neighbor["frbludDirection"] == "back" then
+                    neighbor["weight"] = neighbor["weight"] + 2
+                    neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime * 2
                 end
 
                 -- FLOW
@@ -212,16 +207,19 @@ function nav.aStar(config, WorldMap, turtleObject)
                             neighbor["weight"] = neighbor["weight"] + 2
                         end
                     end
-                    
-                    if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
-                        if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
-                            local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"] + 200
-                            neighbor["weight"] = neighbor["weight"] + 10
-                            neighbor["syncDelay"] = neighbor["syncDelay"] + syncDelay
-                            neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
-                        elseif turtle["unixLeaveTime"] == nil then
-                            neighbor["weight"] = neighbor["weight"] + 100
-                        end
+                end
+
+                -- SYNC DELAY
+                if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
+                    goto continue
+
+                    if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                        local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"] + 200
+                        neighbor["weight"] = neighbor["weight"] + 10
+                        neighbor["syncDelay"] = neighbor["syncDelay"] + syncDelay
+                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
+                    elseif turtle["unixLeaveTime"] == nil then
+                        neighbor["weight"] = neighbor["weight"] + 100
                     end
                 end
 

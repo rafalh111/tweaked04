@@ -134,7 +134,10 @@ server.on('connection', socket => {
                         WorldMap[step.vector] = {turtles : step.turtles || []};
                         continue;
                     } else if (!WorldMap[step.vector].turtles.includes(turtleID)) {
-                        WorldMap[step.vector].turtles.push(...(step.turtles || [])) ;
+                        WorldMap[step.vector].turtles = {
+                            ...WorldMap[step.vector].turtles,
+                            ...step.turtles
+                        };
                     }
                 }
 
@@ -142,7 +145,10 @@ server.on('connection', socket => {
                 
                 returnMessage = {
                     type : 'NewPath',
-                    payload : {journeyPath: journeyPath.where(step => step.turtles === null), timeToWait: syncDelay}
+                    payload : {
+                        journeyPath: journeyPath.filter(step => Object.keys(step.turtles || {}).length === 0), 
+                        syncDelay: syncDelay
+                    }
                 }
             } else {
                 returnMessage = {
@@ -154,6 +160,22 @@ server.on('connection', socket => {
             socket.send(JSON.stringify(returnMessage));
         }
 
+        if (message.type === 'Delay Adjustment') {
+            const delay = message.payload.delay + Date.now() - message.payload.sendTime;
+            const journeyStepIndex = message.payload.TurtleObject.journeyStepIndex - 1;
+            const turtleID = message.payload.TurtleObject.turtleID;
+            const journeyPath = message.payload.journeyPath;
+
+            const firstStepTurtle = WorldMap[journeyPath[journeyStepIndex]['vector']]['turtles'][turtleID];
+            if (firstStepTurtle['unixLeaveTime'] != null) firstStepTurtle['unixLeaveTime'] += delay;
+
+            for (const i = journeyStepIndex + 1; i < journeyPath.length; i++) {
+                const t = WorldMap[journeyPath[i]['vector']]['turtles'][turtleID];
+
+                if (t['unixArriveTime'] != null) t['unixArriveTime'] += delay;
+                if (t['unixLeaveTime'] != null) t['unixLeaveTime'] += delay;
+            }
+        }
 
         if (message.type === 'Journeys End') {
             const journeyPath = message.payload.journeyPath;
