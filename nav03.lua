@@ -207,21 +207,49 @@ function nav.aStar(config, WorldMap, turtleObject)
                             neighbor["weight"] = neighbor["weight"] + 2
                         end
                     end
+                
                 end
 
                 -- SYNC DELAY
-                if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
-                    goto continue
+                local function slowWalking(node)
+                    local syncDelay = 0
+                    for _, turtle in pairs(neighbor["turtles"]) do
+                        if node["unixArriveTime"] >= turtle["unixArriveTime"] then 
+                            if node["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                                syncDelay = syncDelay + turtle["unixLeaveTime"] - node["unixArriveTime"]
+                                node["weight"] = node["weight"] + 10
+                            elseif turtle["unixLeaveTime"] == nil then
+                                node["weight"] = node["weight"] + 100
+                            end
+                        end
+                    end
 
-                    if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
-                        local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"] + 200
-                        neighbor["weight"] = neighbor["weight"] + 10
-                        neighbor["syncDelay"] = neighbor["syncDelay"] + syncDelay
-                        neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
-                    elseif turtle["unixLeaveTime"] == nil then
-                        neighbor["weight"] = neighbor["weight"] + 100
+                    if syncDelay > 0 then
+                        local pathSoFar = {}
+                        table.insert(pathSoFar, node)
+
+                        local backNode = current
+                        while backNode do
+                            table.insert(pathSoFar, 1, backNode)
+                            backNode = cameFrom[backNode["vector"]:tostring()]
+                        end
+
+                        table.remove(pathSoFar, 1)
+
+                        for _, step in ipairs(pathSoFar) do
+                            step["unixArriveTime"] = step["unixArriveTime"] + syncDelay/#pathSoFar
+                            step["syncDelay"] = step["syncDelay"] + syncDelay/#pathSoFar
+
+                            slowWalking(step)
+                        end
+
+                        return pathSoFar, syncDelay
                     end
                 end
+
+                local syncDelay = slowWalking(neighbor)
+                neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
+                neighbor["weight"] = neighbor["weight"] + syncDelay/1000
 
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
                     goto continue  -- This path is not better than what we already have
