@@ -56,7 +56,7 @@ function nav.aStar(config, WorldMap, turtleObject)
     queue[1] = {
         vector = config["beginning"],
         neswudDirection = config["initialDirection"],
-        stepCount = 0,
+        fuelCost = 0,
         unixArriveTime = os.epoch("utc"),
         weight = utils.MultiManhattanDistance(config["beginning"], config["destinations"]),
         turtles = WorldMap[config["beginning"]]["turtles"] or {},
@@ -211,45 +211,42 @@ function nav.aStar(config, WorldMap, turtleObject)
                 end
 
                 -- SYNC DELAY
-                local function slowWalking(node)
-                    local syncDelay = 0
+                -- local function slowWalking(node)
+                    --local syncDelay = 0
                     for _, turtle in pairs(neighbor["turtles"]) do
-                        if node["unixArriveTime"] >= turtle["unixArriveTime"] then 
-                            if node["unixArriveTime"] <= turtle["unixLeaveTime"] then
-                                syncDelay = syncDelay + turtle["unixLeaveTime"] - node["unixArriveTime"]
-                                node["weight"] = node["weight"] + 10
-                            elseif turtle["unixLeaveTime"] == nil then
-                                node["weight"] = node["weight"] + 100
+                        if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
+                            if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                                goto continue
                             end
                         end
                     end
 
-                    if syncDelay > 0 then
-                        local pathSoFar = {}
-                        table.insert(pathSoFar, node)
+                    --if syncDelay > 0 then
+                    --    local pathSoFar = {}
+                    --    table.insert(pathSoFar, node)
+                    --
+                    --    local backNode = current
+                    --    while backNode do
+                    --        table.insert(pathSoFar, 1, backNode)
+                    --        backNode = cameFrom[backNode["vector"]:tostring()]
+                    --    end
+                    --
+                    --    table.remove(pathSoFar, 1)
+                    --
+                    --    for _, step in ipairs(pathSoFar) do
+                    --        step["unixArriveTime"] = step["unixArriveTime"] + syncDelay/#pathSoFar
+                    --        step["syncDelay"] = step["syncDelay"] + syncDelay/#pathSoFar
+                    --
+                    --        slowWalking(step)
+                    --    end
+                    --
+                    --    return pathSoFar, syncDelay
+                    --end
+                -- end
 
-                        local backNode = current
-                        while backNode do
-                            table.insert(pathSoFar, 1, backNode)
-                            backNode = cameFrom[backNode["vector"]:tostring()]
-                        end
-
-                        table.remove(pathSoFar, 1)
-
-                        for _, step in ipairs(pathSoFar) do
-                            step["unixArriveTime"] = step["unixArriveTime"] + syncDelay/#pathSoFar
-                            step["syncDelay"] = step["syncDelay"] + syncDelay/#pathSoFar
-
-                            slowWalking(step)
-                        end
-
-                        return pathSoFar, syncDelay
-                    end
-                end
-
-                local syncDelay = slowWalking(neighbor)
-                neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
-                neighbor["weight"] = neighbor["weight"] + syncDelay/1000
+                -- local syncDelay = slowWalking(neighbor)
+                -- neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
+                -- neighbor["weight"] = neighbor["weight"] + syncDelay/1000
 
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
                     goto continue  -- This path is not better than what we already have
