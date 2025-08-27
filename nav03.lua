@@ -210,43 +210,18 @@ function nav.aStar(config, WorldMap, turtleObject)
                 
                 end
 
-                -- SYNC DELAY
-                -- local function slowWalking(node)
-                    --local syncDelay = 0
-                    for _, turtle in pairs(neighbor["turtles"]) do
-                        if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
-                            if neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
-                                goto continue
-                            end
+                for _, turtle in pairs(neighbor["turtles"]) do
+                    if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
+                        if turtle["unixLeaveTime"] and neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                            local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"]
+                            neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
+                            neighbor["syncDelay"] = (neighbor["syncDelay"] or 0) + syncDelay
+                            neighbor["weight"] = neighbor["weight"] + math.ceil(syncDelay / 1000)  -- 1 weight per second of waiting
+                        elseif not turtle["unixLeaveTime"] then
+                            goto continue
                         end
                     end
-
-                    --if syncDelay > 0 then
-                    --    local pathSoFar = {}
-                    --    table.insert(pathSoFar, node)
-                    --
-                    --    local backNode = current
-                    --    while backNode do
-                    --        table.insert(pathSoFar, 1, backNode)
-                    --        backNode = cameFrom[backNode["vector"]:tostring()]
-                    --    end
-                    --
-                    --    table.remove(pathSoFar, 1)
-                    --
-                    --    for _, step in ipairs(pathSoFar) do
-                    --        step["unixArriveTime"] = step["unixArriveTime"] + syncDelay/#pathSoFar
-                    --        step["syncDelay"] = step["syncDelay"] + syncDelay/#pathSoFar
-                    --
-                    --        slowWalking(step)
-                    --    end
-                    --
-                    --    return pathSoFar, syncDelay
-                    --end
-                -- end
-
-                -- local syncDelay = slowWalking(neighbor)
-                -- neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
-                -- neighbor["weight"] = neighbor["weight"] + syncDelay/1000
+                end
 
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
                     goto continue  -- This path is not better than what we already have
