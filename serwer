@@ -110,24 +110,39 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'Journey') {
+            const calculationStart = Date.now()
             const destinations = message.payload.destinations;
-            const turtleID = message.payload.TurtleObject.turtleID;
+            const TurtleObject = message.payload.TurtleObject;
             const doAtTheEnd = message.payload.doAtTheEnd || 'go';
+            const networkDelay = Date.now() - message.payload.sendTime || 0
 
-            const journeyData = aStar(
+            const journeyPath = aStar(
                 TurtleObject.position,
                 destinations,
                 TurtleObject.fuel,
                 WorldMap, 
             );
 
-            const journeyPath = journeyData ? journeyData.journeyPath : null;
-            const syncDelay = journeyData ? journeyData.syncDelay : 0;
-
             const returnMessage = {};
             if (journeyPath) {
+                const delay = Date.now() - calculationStart + networkDelay
                 for (let i = 0; i < journeyPath.length; i++) {
                     const step = journeyPath[i];
+                    if (step.syncDelay > 0) {
+                        let diff = step.syncDelay - delay;
+                        
+                        if (diff > 0) {
+                            step.syncDelay -= delay;
+                            delay = 0;
+                        } else {
+                            step.syncDelay = 0;
+                            delay -= step.syncDelay;
+                        }
+                    }
+
+                    if (step['unixArriveTime'] != null) step['unixArriveTime'] += delay;
+                    if (step['unixLeaveTime'] != null) step['unixLeaveTime'] += delay;   
+
                     if (i === journeyPath.length - 1 && !doAtTheEnd.includes('go')) {
                         break; // Skip the last step if doAtTheEnd does not include 'go'
                     } else if (!WorldMap[step.vector]) {
@@ -147,7 +162,6 @@ server.on('connection', socket => {
                     type : 'NewPath',
                     payload : {
                         journeyPath: journeyPath.filter(step => Object.keys(step.turtles || {}).length === 0), 
-                        syncDelay: syncDelay
                     }
                 }
             } else {

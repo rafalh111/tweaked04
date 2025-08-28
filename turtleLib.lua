@@ -234,12 +234,9 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
 end
 
 local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
-    TurtleObject["busy"] = true
-    
     repeat
-        local startTime = os.epoch("utc")
         local closestDestination = vector.new()
-        local syncDelay = 0
+        -- local syncDelay = 0
 
         -- If journeyPath not yet set, request it from the server
         if not TurtleObject["journeyPath"] then
@@ -248,19 +245,18 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
                 payload = {
                     TurtleObject = TurtleObject,
                     destinations = destinations,
-                    doAtTheEnd = doAtTheEnd
+                    doAtTheEnd = doAtTheEnd,
+                    sendTime = os.epoch()
                 }
             }))
 
             local message = utils.listenForWsMessage("NewPath")
             local journeyPath = message.payload.journeyPath
-            syncDelay = message.payload.syncDelay or 0
 
             if message.payload == "no path found" then
                 print("I am trapped :(")
                 TurtleObject["journeyStepIndex"] = nil
                 TurtleObject["journeyPath"] = nil
-                TurtleObject["busy"] = false
                 return false
             end
 
@@ -274,28 +270,13 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
 
             print("Best path found with " .. #journeyPath .. " steps.")
         end
-
-        local calculationTime = os.epoch("utc") - startTime
-        local timeToWait = syncDelay - calculationTime
-        if timeToWait > 0 then
-            print("Sleeping for " .. timeToWait/1000 .. " seconds before starting the journey.")
-            os.sleep(timeToWait)
-        elseif timeToWait < 0 then
-            print("Warning: Sync delay is negative, calculation took longer than expected.")
-            ws.send(textutils.serializeJSON({
-                type = "Delay Adjustment",
-                payload = {
-                    TurtleObject = TurtleObject,
-                    sendTime = os.epoch("utc"),
-                    delay = -timeToWait
-                }
-            }))
-        end
-
+        
         -- Follow the current journeyPath
         while TurtleObject["journeyPath"] and TurtleObject["journeyStepIndex"] <= #TurtleObject["journeyPath"] do
             local step = TurtleObject["journeyPath"][TurtleObject["journeyStepIndex"]]
-            
+
+            os.sleep(step["syncDelay"]/1000)
+
             if TurtleObject["journeyStepIndex"] < #TurtleObject["journeyPath"] or step.special.lastBlock == "go" then
                 if handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws) == false then
                     break
@@ -323,9 +304,6 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
         }))
 
     until TurtleObject["position"]:equals(closestDestination)
-
-    TurtleObject["busy"] = false
-    
 
     return true
 end

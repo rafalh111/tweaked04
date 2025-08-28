@@ -12,10 +12,10 @@ local function flowCalculation(flowDir, neighborDir)
     if neighborDir == flowDir then
         return "PathFlow"
     end
-
+    
     if neighborDir == "up" or neighborDir == "down" or 
-       flowDir == "up" or flowDir == "down" then   
-
+    flowDir == "up" or flowDir == "down" then   
+        
         if (neighborDir == "up" and flowDir == "down") or
         (neighborDir == "down" and flowDir == "up") then
             return "AgainstFlow"
@@ -31,7 +31,7 @@ local function flowCalculation(flowDir, neighborDir)
             end
         end
     end
-
+    
     return "MergeFromSide"
 end
 
@@ -41,7 +41,7 @@ local function isDestination(destinations, currentKey)
             return true
         end
     end
-
+    
     return false
 end
 
@@ -121,7 +121,6 @@ function nav.aStar(config, WorldMap, turtleObject)
         
         ---/*%$# PATH RECONSTRUCTION #$%*\---
         if isDestination(config["destinations"], currentKey) then
-            local totalSyncDelay = current["syncDelay"] or 0
             local journeyPath = {}
 
             while current do
@@ -148,7 +147,7 @@ function nav.aStar(config, WorldMap, turtleObject)
             end
 
             table.remove(journeyPath, 1)
-            return {journeyPath = journeyPath, totalSyncDelay = totalSyncDelay}
+            return journeyPath
         end
 
         ---/*%$# QUEUE BUILD #$%*\---
@@ -207,7 +206,6 @@ function nav.aStar(config, WorldMap, turtleObject)
                             neighbor["weight"] = neighbor["weight"] + 2
                         end
                     end
-                
                 end
 
                 for _, turtle in pairs(neighbor["turtles"]) do
