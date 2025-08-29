@@ -45,7 +45,7 @@ local function isDestination(destinations, currentKey)
     return false
 end
 
-function nav.aStar(config, WorldMap, turtleObject)
+function nav.aStar(args, WorldMap, turtleObject)
     if not WorldMap then
         WorldMap = {}
     end
@@ -54,14 +54,14 @@ function nav.aStar(config, WorldMap, turtleObject)
     local queue = {}
     
     queue[1] = {
-        vector = config["beginning"],
-        neswudDirection = config["initialDirection"],
+        vector = args["beginning"],
+        neswudDirection = args["initialDirection"],
         fuelCost = 0,
         unixArriveTime = os.epoch("utc"),
-        weight = utils.MultiManhattanDistance(config["beginning"], config["destinations"]),
-        turtles = WorldMap[config["beginning"]]["turtles"] or {},
+        weight = utils.MultiManhattanDistance(args["beginning"], args["destinations"]),
+        turtles = WorldMap[args["beginning"]]["turtles"] or {},
         syncDelay = 0,
-        turtleFace = config["initialDirection"],
+        turtleFace = args["initialDirection"],
         frbludDirection = nil
     }
 
@@ -78,29 +78,29 @@ function nav.aStar(config, WorldMap, turtleObject)
         local current = queue:pop()
         local currentKey = current["vector"]:tostring()
 
-        local InitialWeight = utils.MultiManhattanDistance(current["vector"], config["destinations"])
+        local InitialWeight = utils.MultiManhattanDistance(current["vector"], args["destinations"])
         if loopCount % 1000 == 0 then
             print("A* loop count: " .. loopCount)
 
             if loopCount % 100000 == 0 then
-                if not config["reverseCheck"] and current["weight"] > InitialWeight * 2 and
-                   not config["dig"] then
+                if not args["reverseCheck"] and current["weight"] > InitialWeight * 2 and
+                   not args["dig"] then
                     print("Current path is too long, checking for reverse path...")
-                    if config["isReverse"] then
+                    if args["isReverse"] then
                         return false
                     end
                     
                     local reachable = false
-                    for _, destination in ipairs(config["destinations"]) do
-                        local reverseConfig = {
+                    for _, destination in ipairs(args["destinations"]) do
+                        local reverseargs = {
                             beginning = destination,
-                            destinations = config["beginning"],
+                            destinations = args["beginning"],
                             initialDirection = utils.oppositeDirection(current["direction"]),
                             isReverse = true,
                             reverseCheck = true
                         }
 
-                        if nav.aStar(reverseConfig, WorldMap, turtleObject) then
+                        if nav.aStar(reverseargs, WorldMap, turtleObject) then
                             reachable = true
                             break
                         end
@@ -111,7 +111,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                         return false
                     end
                     
-                    config["reverseCheck"] = true
+                    args["reverseCheck"] = true
                 end
             end
 
@@ -120,7 +120,7 @@ function nav.aStar(config, WorldMap, turtleObject)
         end
         
         ---/*%$# PATH RECONSTRUCTION #$%*\---
-        if isDestination(config["destinations"], currentKey) then
+        if isDestination(args["destinations"], currentKey) then
             local journeyPath = {}
 
             while current do
@@ -142,7 +142,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                 current = cameFrom[current["vector"]:tostring()]
             end
 
-            if turtleObject and config.doAtTheEnd and not utils.TableContains(config.doAtTheEnd, "go") then
+            if turtleObject and args.doAtTheEnd and not utils.TableContains(args.doAtTheEnd, "go") then
                 journeyPath[#journeyPath - 1]["turtles"][turtleObject["id"]]["unixLeaveTime"] = nil
             end
 
@@ -163,7 +163,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                 neighbor["neswudDirection"] = utils["duwsenDirectionVectors"][neighborVector:sub(current.vector):tostring()]
                 neighbor["fuelCost"] = current["fuelCost"] + 1
                 neighbor["unixArriveTime"] = current["unixArriveTime"] + StepTime
-                neighbor["weight"] = current["weight"] + utils.MultiManhattanDistance(neighborVector, config["destinations"]) + 1
+                neighbor["weight"] = current["weight"] + utils.MultiManhattanDistance(neighborVector, args["destinations"]) + 1
                 neighbor["turtles"] = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {}
                 neighbor["syncDelay"] = 0
                 if utils.neswudDirections[neighbor["neswudDirection"]] > 4 then
@@ -175,7 +175,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                 
                 -- BLOCKED NEIGHBOR CHECK
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["blocked"] then           
-                    if not config["dig"] then
+                    if not args["dig"] then
                         goto continue  -- Skip blocked neighbors unless digging is allowed
                     end
 
@@ -194,7 +194,7 @@ function nav.aStar(config, WorldMap, turtleObject)
 
                 -- FLOW
                 for _, turtle in pairs(neighbor["turtles"]) do
-                    if config["nonConformist"] then
+                    if args["nonConformist"] then
                         neighbor["weight"] = neighbor["weight"] + 2
                     else
                         local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
@@ -208,6 +208,7 @@ function nav.aStar(config, WorldMap, turtleObject)
                     end
                 end
 
+                -- COLLISION
                 for _, turtle in pairs(neighbor["turtles"]) do
                     if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
                         if turtle["unixLeaveTime"] and neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then

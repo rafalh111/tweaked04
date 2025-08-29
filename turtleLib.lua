@@ -8,12 +8,12 @@ local parallel
 
 local turtleLib = {}
 
-function turtleLib.LoadTurtleState(ws)
-    local realTurtle = {}   -- this will hold actual data
+function turtleLib.LoadTurtleState(ws, defaultTurtle)
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
+    local realTurtle = defaultTurtle or {}   -- this will hold actual data
+    local TurtleObject = {}
 
     -- TurtleObject table that user code will interact with
-    local TurtleObject = {}
     setmetatable(TurtleObject, {
         __index = realTurtle, -- read from real state
         __newindex = function(_, key, value)
@@ -30,28 +30,10 @@ function turtleLib.LoadTurtleState(ws)
             realTurtle["position"].x,
             realTurtle["position"].y,
             realTurtle["position"].z
-        )
-    else
-        rednet.send(realTurtle["baseID"], realTurtle, "TurtleBorn")
-        local senderID, message, protocol = rednet.receive()
-        if protocol == "Completion1" then
-            message = textutils.unserialize(message)
-            for k, v in pairs(message) do
-                realTurtle[k] = v
-            end
-        end
-
-        ws.send(textutils.serializeJSON({type = "turtleBorn", payload = realTurtle}))
-        local event, p1, p2, p3 = os.pullEvent()
-        message = textutils.unserializeJSON(p2)
-        if message.type == "Completion2" then
-            for k, v in pairs(message.payload) do
-                realTurtle[k] = v
-            end
-        end
-
-        utils.SerializeAndSave(realTurtle, "turtleLog")
+        )    
     end
+
+    ws.send(textutils.serializeJSON({type = "turtleBorn", payload = realTurtle}))
 
     return TurtleObject -- always return TurtleObject
 end

@@ -2,15 +2,8 @@
 local turtleLib = require("turtleLib")
 local utils = require("utils")
 local nav = require("nav03")
-
-local ws, err = http.websocket("ws://127.0.0.1:8080")
-if not ws then
-    error("WebSocket failed: " .. tostring(err))
-end
-
--- load or initialize turtle state
-local TurtleObject = turtleLib.LoadTurtleState(ws)
-TurtleObject.busy = false
+print("Loaded the libraries successfully")
+os.sleep(0.5)
 
 -- command lookup
 local commandHandlers = {
@@ -24,6 +17,30 @@ local commandHandlers = {
     end,
 }
 
+print("Initialized commandHandlers")
+os.sleep(0.5)
+
+
+local ws
+while not ws do
+    local err
+    ws, err = http.websocket("ws://127.0.0.1:8080")
+    if err then
+        error("No signal::: " .. tostring(err) .. " :::will try again after 5 seconds")
+    end
+    os.sleep(5)
+end
+
+print("connected to the server!!!")
+os.sleep(0.5)
+
+-- load or initialize turtle state
+local defaultTurtle = {}
+local TurtleObject = turtleLib.LoadTurtleState(ws, defaultTurtle)
+TurtleObject.busy = false
+
+print("loaded the turtle data correctly, starting the main loop...")
+
 while true do
     local event, url, data = os.pullEvent()
 
@@ -31,30 +48,41 @@ while true do
         local message = textutils.unserializeJSON(data)
         if not message then
             print("Invalid JSON: " .. tostring(data))
-        else
-            if message.type == "Completion2" then
-                TurtleObject = message.payload
-                utils.SerializeAndSave(TurtleObject, "turtleLog")
+            goto continue
+        end
+        
+        if message.type == "Journey" then
+            TurtleObject.busy = true
 
-            elseif message.type == "PC?" then
-                -- announce we are a turtle
-                ws.send(textutils.serializeJSON({
-                    type = "TurtleBorn",
-                    payload = TurtleObject
-                }))
+            local args = message.payload.args
+            commandHandlers[journey](args)
 
-            elseif message.type == "Task" then
-                local cmd = message.payload.command
-                local args = message.payload.args or {}
-
-                if commandHandlers[cmd] then
-                    TurtleObject.busy = true
-                    commandHandlers[cmd](args)
-                    TurtleObject.busy = false
+            TurtleObject.busy = false
+        elseif message.type == "PC?" then
+            -- announce we are a turtle
+            ws.send(textutils.serializeJSON({
+                type = "PC? Response",
+                payload = {
+                    TurtleObject = TurtleObject,
+                    letter = "notPC"
+                }
+            }))
+        elseif message.type == "Task" then
+            local cmds = message.payload.commands
+            TurtleObject.busy = true
+            
+            for _, cmd in ipairs(cmds) do               
+                if commandHandlers[cmd.name] then
+                    commandHandlers[cmd.name](cmd.args)
                 else
                     print("Unknown command: " .. tostring(cmd))
+                    break
                 end
             end
+
+            TurtleObject.busy = false
         end
     end
+
+    ::continue::
 end
