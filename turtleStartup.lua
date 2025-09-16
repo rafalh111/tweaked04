@@ -21,16 +21,21 @@ print("Initialized commandHandlers")
 os.sleep(0.5)
 
 
-local ws
-while not ws do
-    local err
-    ws, err = http.websocket("ws://127.0.0.1:8080")
-    if err then
-        error("No signal::: " .. tostring(err) .. " :::will try again after 5 seconds")
+function ServerSearch(delay)
+    local ws
+    while not ws do
+        local err
+        ws, err = http.websocket("ws://127.0.0.1:8080")
+        if err then
+            error("No signal::: " .. tostring(err) .. " :::will try again after 5 seconds")
+        else
+            return ws
+        end
+        os.sleep(delay)
     end
-    os.sleep(5)
 end
 
+local ws = ServerSearch(5)
 print("connected to the server!!!")
 os.sleep(0.5)
 
@@ -42,46 +47,42 @@ TurtleObject.busy = false
 print("loaded the turtle data correctly, starting the main loop...")
 
 while true do
-    local event, url, data = os.pullEvent()
+    local event, url, data = os.pullEvent("websocket_message")
+    
+    local message = textutils.unserializeJSON(data)
+    if not message then
+        print("Invalid JSON: " .. tostring(data))
+        goto continue
+    end
 
-    if event == "websocket_message" then
-        local message = textutils.unserializeJSON(data)
-        if not message then
-            print("Invalid JSON: " .. tostring(data))
-            goto continue
-        end
-        
-        if message.type == "Journey" then
-            TurtleObject.busy = true
+    if message.type == "Journey" then
+        TurtleObject.busy = true
+        local args = message.payload.args
+        commandHandlers.journey(args)
+        TurtleObject.busy = false
 
-            local args = message.payload.args
-            commandHandlers[journey](args)
-
-            TurtleObject.busy = false
-        elseif message.type == "PC?" then
-            -- announce we are a turtle
-            ws.send(textutils.serializeJSON({
-                type = "PC? Response",
-                payload = {
-                    TurtleObject = TurtleObject,
-                    letter = "notPC"
-                }
-            }))
-        elseif message.type == "Task" then
-            local cmds = message.payload.commands
-            TurtleObject.busy = true
-            
-            for _, cmd in ipairs(cmds) do               
-                if commandHandlers[cmd.name] then
-                    commandHandlers[cmd.name](cmd.args)
-                else
-                    print("Unknown command: " .. tostring(cmd))
-                    break
+    elseif message.type == "PC?" then
+        ws.send(textutils.serializeJSON({
+            type = "PC? Response",
+            payload = {
+                TurtleObject = TurtleObject,
+                letter = "notPC"
+            }
+        }))
+    
+    elseif message.type == "Task" then
+        TurtleObject.busy = true
+        for _, cmd in ipairs(message.payload.commands) do
+            if commandHandlers[cmd.name] then
+                local ok, err = pcall(commandHandlers[cmd.name], cmd.args)
+                if not ok then
+                    print("Error running command: " .. tostring(err))
                 end
+            else
+                print("Unknown command: " .. tostring(cmd.name))
             end
-
-            TurtleObject.busy = false
         end
+        TurtleObject.busy = false
     end
 
     ::continue::

@@ -6,6 +6,7 @@ local nav = {}
 StepTime = 400
 TurnTime = 400
 DigTime = 500
+SafetyMargin = 1000
 
 local function flowCalculation(flowDir, neighborDir)
     -- Perfect alignment with flow
@@ -195,23 +196,26 @@ function nav.aStar(args, WorldMap, turtleObject)
                 -- FLOW
                 for _, turtle in pairs(neighbor["turtles"]) do
                     if args["nonConformist"] then
-                        neighbor["weight"] = neighbor["weight"] + 2
+                        neighbor["weight"] = neighbor["weight"] + 1
                     else
-                        local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
-                        if flow == "PathFlow" then
-                            neighbor["weight"] = neighbor["weight"] - 1
-                        elseif flow == "MergeFromSide" then
-                            neighbor["weight"] = neighbor["weight"] + 1
-                        elseif flow == "AgainstFlow" then
-                            neighbor["weight"] = neighbor["weight"] + 2
-                        end
+                        -- local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
+                        -- if flow == "PathFlow" then
+                        --     neighbor["weight"] = neighbor["weight"] - 1
+                        -- elseif flow == "MergeFromSide" then
+                        --     neighbor["weight"] = neighbor["weight"] + 1
+                        -- elseif flow == "AgainstFlow" then
+                        --     neighbor["weight"] = neighbor["weight"] + 2
+                        -- end
+
+
+                        neighbor["weight"] = neighbor["weight"] - 1
                     end
                 end
 
                 -- COLLISION
                 for _, turtle in pairs(neighbor["turtles"]) do
-                    if neighbor["unixArriveTime"] >= turtle["unixArriveTime"] then 
-                        if turtle["unixLeaveTime"] and neighbor["unixArriveTime"] <= turtle["unixLeaveTime"] then
+                    if neighbor["unixArriveTime"] - SafetyMargin >= turtle["unixArriveTime"] then 
+                        if turtle["unixLeaveTime"] and neighbor["unixArriveTime"] + SafetyMargin <= turtle["unixLeaveTime"] then
                             local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"]
                             neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
                             neighbor["syncDelay"] = (neighbor["syncDelay"] or 0) + syncDelay
