@@ -61,7 +61,7 @@ function nav.aStar(args, WorldMap, turtleObject)
         unixArriveTime = os.epoch("utc"),
         weight = utils.MultiManhattanDistance(args["beginning"], args["destinations"]),
         turtles = WorldMap[args["beginning"]]["turtles"] or {},
-        syncDelay = 0,
+        waitTime = 0,
         turtleFace = args["initialDirection"],
         frbludDirection = nil
     }
@@ -129,7 +129,7 @@ function nav.aStar(args, WorldMap, turtleObject)
                 journeyStep["vector"] = current["vector"]
                 journeyStep["frbludDirection"] = current["frbludDirection"]
                 journeyStep["turtles"] = current["turtles"] or {}
-                journeyStep["syncDelay"] = current["syncDelay"]
+                journeyStep["waitTime"] = current["waitTime"]
 
                 if turtleObject then
                     journeyStep["turtles"][turtleObject["id"]] = {
@@ -166,7 +166,7 @@ function nav.aStar(args, WorldMap, turtleObject)
                 neighbor["unixArriveTime"] = current["unixArriveTime"] + StepTime
                 neighbor["weight"] = current["weight"] + utils.MultiManhattanDistance(neighborVector, args["destinations"]) + 1
                 neighbor["turtles"] = WorldMap[neighborKey] and WorldMap[neighborKey].turtles or {}
-                neighbor["syncDelay"] = 0
+                neighbor["waitTime"] = 0
                 if utils.neswudDirections[neighbor["neswudDirection"]] > 4 then
                     neighbor["turtleFace"] = current["turtleFace"]
                 else
@@ -177,7 +177,7 @@ function nav.aStar(args, WorldMap, turtleObject)
                 -- BLOCKED NEIGHBOR CHECK
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["blocked"] then           
                     if not args["dig"] then
-                        goto continue  -- Skip blocked neighbors unless digging is allowed
+                        goto nextNeighbor  -- Skip blocked neighbors unless digging is allowed
                     end
 
                     neighbor["weight"] = neighbor["weight"] + 100
@@ -193,11 +193,30 @@ function nav.aStar(args, WorldMap, turtleObject)
                     neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime * 2
                 end
 
-                -- FLOW
+                -- OTHER TURTLES
                 for _, turtle in pairs(neighbor["turtles"]) do
+                    -- arrive check
+                    if turtle["unixArriveTime"] and neighbor["unixArriveTime"] - SafetyMargin >= turtle["unixArriveTime"] then 
+                        if not turtle["unixLeaveTime"] then
+                            goto nextNeighbor
+                        end
+
+                        -- leave check
+                        if neighbor["unixArriveTime"] + SafetyMargin <= turtle["unixLeaveTime"] then
+
+                            -- add wait time
+                            local waitTime = turtle["unixLeaveTime"] - neighbor["unixArriveTime"]
+                            neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + waitTime
+                            neighbor["waitTime"] = (neighbor["waitTime"] or 0) + waitTime
+                            neighbor["weight"] = neighbor["weight"] + math.ceil(waitTime / 1000)  -- 1 weight per second of waiting
+                        end
+                    end
+
                     if args["nonConformist"] then
                         neighbor["weight"] = neighbor["weight"] + 1
                     else
+                        -- NO FLOW CALCULATION FOR NOW
+
                         -- local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
                         -- if flow == "PathFlow" then
                         --     neighbor["weight"] = neighbor["weight"] - 1
@@ -207,34 +226,19 @@ function nav.aStar(args, WorldMap, turtleObject)
                         --     neighbor["weight"] = neighbor["weight"] + 2
                         -- end
 
-
                         neighbor["weight"] = neighbor["weight"] - 1
                     end
                 end
 
-                -- COLLISION
-                for _, turtle in pairs(neighbor["turtles"]) do
-                    if neighbor["unixArriveTime"] - SafetyMargin >= turtle["unixArriveTime"] then 
-                        if turtle["unixLeaveTime"] and neighbor["unixArriveTime"] + SafetyMargin <= turtle["unixLeaveTime"] then
-                            local syncDelay = turtle["unixLeaveTime"] - neighbor["unixArriveTime"]
-                            neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + syncDelay
-                            neighbor["syncDelay"] = (neighbor["syncDelay"] or 0) + syncDelay
-                            neighbor["weight"] = neighbor["weight"] + math.ceil(syncDelay / 1000)  -- 1 weight per second of waiting
-                        elseif not turtle["unixLeaveTime"] then
-                            goto continue
-                        end
-                    end
-                end
-
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
-                    goto continue  -- This path is not better than what we already have
+                    goto nextNeighbor  -- This path is not better than what we already have
                 end
 
                 bestCost[neighborKey] = neighbor["weight"]
                 cameFrom[neighborKey] = current
                 queue:push(neighbor)
 
-                ::continue::
+                ::nextNeighbor::
             end
         end
     end

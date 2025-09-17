@@ -119,6 +119,7 @@ export class Heap {
             this.swap(i, smallest);
             i = smallest;
         }
+        
     }
 
     pop() {
