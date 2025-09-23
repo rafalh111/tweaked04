@@ -1,22 +1,21 @@
-// server.js  (single-file, updated and fixed)
-const { aStar } = require('./nav03.js');
-const {
+import { aStar } from './nav03.js';
+import {
     Vector, Heap, ManhattanDistance,
-    duwsenDirectionVectors, FaceToIndex,
+    duwsenDirectionVectors, FaceToIndex, 
     neswudDirectionVectors
-} = require('./utils.js');
+} from './utils.js';
 
 const WebSocket = require('ws');
-const fs = require('fs');
+const fs = require('fs')
 const path = require('path');
 
 const server = new WebSocket.Server({ port: 8080 });
 let TurtleObjects = {};
+let LiveTurtles = {};
 const WorldMap = {};
 let PCs = [];
 const computercraftDirectory = './computercraft';
 
-// Load persistent world map if present
 if (fs.existsSync('WorldMap.json')) {
     try {
         const data = fs.readFileSync('WorldMap.json', 'utf8');
@@ -26,20 +25,12 @@ if (fs.existsSync('WorldMap.json')) {
     }
 }
 
-// Save WorldMap asynchronously (non-blocking) with simple error logging
-function saveWorldMap() {
-    fs.writeFile('WorldMap.json', JSON.stringify(WorldMap, null, 2), (err) => {
-        if (err) {
-            console.error('Failed to write WorldMap.json:', err);
-        }
-    });
-}
-
 function JustNumber(parsedName) {
-    return /^[0-9]+$/.test(parsedName);
+  return /^[0-9]+$/.test(parsedName);
 }
 
-function findTurtleLogs(directory, IDs) {
+function updateTurtleObjects(directory) {
+    if (!directory) directory = computercraftDirectory;
     let FoundTurtleObjects = {};
 
     const files = fs.readdirSync(directory, { withFileTypes: true });
@@ -49,163 +40,150 @@ function findTurtleLogs(directory, IDs) {
         const parsedName = path.parse(file.name).name;
 
         if (file.isDirectory()) {
-            // if IDs provided, only descend into matching directories OR non-numeric names
-            if (!IDs || IDs.includes(parsedName) || !JustNumber(parsedName)) {
-                try {
-                    Object.assign(FoundTurtleObjects, findTurtleLogs(fullPath, IDs));
-                } catch (e) {
-                    console.error(`Error reading directory ${fullPath}:`, e);
-                }
+            if (!JustNumber(parsedName)) {
+                Object.assign(FoundTurtleObjects, updateTurtleObjects(fullPath));
             }
-        } else if (file.name.startsWith('TurtleLog')) {
+        } else if (file.name.startsWith("TurtleLog")) {
             try {
-                const fileContent = fs.readFileSync(fullPath, 'utf8');
-                Object.assign(FoundTurtleObjects, JSON.parse(fileContent));
+                const fileContent = fs.readFileSync(fullPath, "utf8");
+                const parsed = JSON.parse(fileContent);
+
+                if (Array.isArray(parsed)) {
+                    // convert array into object keyed by turtle["id"]
+                    parsed.forEach(turtle => {
+                        if (turtle["id"] !== undefined) {
+                            FoundTurtleObjects[turtle["id"]] = turtle;
+                        }
+                    });
+                } else if (parsed && typeof parsed === "object") {
+                    // already an object keyed by IDs
+                    Object.assign(FoundTurtleObjects, parsed);
+                }
             } catch (err) {
                 console.error(`Failed to parse ${fullPath}:`, err.message);
             }
         }
     });
 
-    TurtleObjects = FoundTurtleObjects;
-    return FoundTurtleObjects;
-}
+    // cleanup old turtles
+    Object.values(TurtleObjects).forEach(turtle => {
+        const posKey = turtle["position"].toString();
+        const turtlesAtPos = WorldMap[posKey]?.turtles;
 
-// Safe send helper: check readyState and catch send errors
-function safeSend(socket, obj) {
-    if (!socket) return false;
-    try {
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(obj));
-            return true;
-        } else {
-            // socket not open
-            return false;
+        if (turtlesAtPos) {
+            const turtleKey = turtlesAtPos[turtle["id"]] || null;
+            if (turtleKey && !turtleKey.unixLeaveTime && !turtleKey.unixArriveTime) {
+                delete turtlesAtPos[turtle["id"]];
+            }
         }
-    } catch (err) {
-        console.error('safeSend error:', err);
-        return false;
-    }
+    });
+
+    // replace with newly found turtles
+    TurtleObjects = FoundTurtleObjects;
+
+    // reset idle turtles
+    Object.values(TurtleObjects).forEach(turtle => {
+        const turtlesAtPos = WorldMap[turtle["position"].toString()]?.turtles;
+
+        if (turtlesAtPos && turtlesAtPos[turtle["id"]] && turtle.busy === false) {
+            turtlesAtPos[turtle["id"]].unixArriveTime = null;
+            turtlesAtPos[turtle["id"]].unixLeaveTime = null;
+
+            // iterate over all turtles at the same position
+            Object.entries(turtlesAtPos).forEach(([interruptedID, interruptedTurtle]) => {
+                if (interruptedID !== turtle["id"] && interruptedTurtle.unixArriveTime >= Date.now()) {
+                    // notify via socket
+                    if (TurtleObjects[interruptedID]?.socket) {
+                        TurtleObjects[interruptedID].socket.send(JSON.stringify({ type: 'obstacle on your way' }));
+                    }
+                }
+            });
+        }
+    });
 }
 
-// Avoid duplicate PC entries
-function addPC(socket) {
-    if (!PCs.includes(socket)) {
-        PCs.push(socket);
-    }
-}
-
-function removePC(socket) {
-    const idx = PCs.indexOf(socket);
-    if (idx !== -1) {
-        PCs.splice(idx, 1);
-    }
-}
 
 server.on('connection', socket => {
     console.log('New connection established');
-    // ask for identity
-    safeSend(socket, 'PC?');
+    socket.send('PC?');
 
     socket.on('message', data => {
-        let message;
-        try {
-            message = JSON.parse(data);
-        } catch (err) {
-            console.error('Invalid JSON received:', data);
-            return;
-        }
+        let message = JSON.parse(data);
 
-        // --- PassThrough (forward message to a turtle) ---
         if (message.type === 'PassThrough') {
-            const receiverID = message.receiver;
-            const targetTurtle = TurtleObjects[receiverID];
+            for (const turtle in TurtleObjects) {
+                if (TurtleObjects[turtle].id === message.receiver) {
+                    const returnMessage = message
+                    returnMessage.type = message.newHeader || 'PassThrough'; // Use the new header if provided, otherwise default to 'PassThrough'
+                    delete returnMessage.newHeader; // Clean up the message to avoid confusion
+                    if (TurtleObjects[turtle].socket) {
+                        TurtleObjects[turtle].socket.send(JSON.stringify(returnMessage));
+                    } else {
+                        console.log(`Turtle ${turtle} has no active socket connection.`);
+                    }
 
-            if (targetTurtle && targetTurtle.socket && targetTurtle.socket.readyState === WebSocket.OPEN) {
-                const returnMessage = {
-                    ...message,
-                    type: message.newHeader || 'PassThrough',
-                };
-                delete returnMessage.newHeader;
-
-                safeSend(targetTurtle.socket, returnMessage);
-            } else {
-                console.warn(`PassThrough failed: Turtle '${receiverID}' not found or disconnected.`);
+                    break;
+                }
             }
-            return;
         }
 
-        // --- MapUpdate (merge updates into WorldMap) ---
         if (message.type === 'MapUpdate') {
             const detected = message.payload;
-            let change = false;
 
             for (const vectorKey in detected) {
                 const inspectVariables = detected[vectorKey];
-
-                if (inspectVariables.blocked) {
-                    // merge new data with existing (preserve metadata)
-                    WorldMap[vectorKey] = {
-                        ...(WorldMap[vectorKey] || {}),
-                        ...(inspectVariables.data || {}),
-                        blocked: true
-                    };
-                    change = true;
-                } else {
-                    // if it is unblocked and there is existing data, remove it
-                    if (WorldMap[vectorKey]) {
-                        delete WorldMap[vectorKey];
-                        change = true;
-                    }
+            
+                if (inspectVariables.blocked && !WorldMap[vectorKey]) {
+                    WorldMap[vectorKey] = inspectVariables.data;
+                    WorldMap[vectorKey].blocked = true; // Ensure blocked status is set
+                    fs.writeFile('WorldMap.json', JSON.stringify(WorldMap, null, 2));
+                    
+                    Object.entries(WorldMap[vectorKey]["turtles"]).forEach(([interruptedID, interruptedTurtle]) => {
+                        if (interruptedTurtle.unixArriveTime >= Date.now()) {
+                            // notify via socket
+                            if (TurtleObjects[interruptedID]?.socket) {
+                                TurtleObjects[interruptedID].socket.send(JSON.stringify({ type: 'obstacle on your way' }));
+                            } else {
+                                console.log(`Turtle ${interruptedID} has no active socket connection.`);
+                            }
+                        }
+                    });
+                } else if (!inspectVariables.blocked && WorldMap[vectorKey]) {
+                    delete WorldMap[vectorKey];
+                    fs.writeFile('WorldMap.json', JSON.stringify(WorldMap, null, 2));
                 }
             }
-
-            if (change) saveWorldMap();
-            return;
         }
 
-        // --- MapRequest ---
         if (message.type === 'MapRequest') {
-            safeSend(socket, {
-                type: 'MapSupply',
-                payload: WorldMap
-            });
-            return;
+            message.type = 'MapSupply'
+            socket.send(JSON.stringify({ type: 'MapSupply', payload: WorldMap }));
         }
 
-        // --- PC registration ---
         if (message.type === 'PCConfirm') {
-            addPC(socket);
-            return;
+            if (PCs.includes(socket)) return; // avoid duplicates
+            console.log('PC connected');
+            PCs.push(socket);
         }
 
-        // --- TurtleBorn (register turtle) ---
         if (message.type === 'TurtleBorn') {
-            const TurtleObject = message.payload.TurtleObject;
-            const turtleId = TurtleObject.id || TurtleObject.turtleID;
-            if (!turtleId) {
-                console.warn('TurtleBorn without id/turtleID', TurtleObject);
-            } else {
-                TurtleObjects[turtleId] = { socket, ...message.payload };
-                console.log(`Turtle ${turtleId} registered at ${JSON.stringify(TurtleObject.position)}`);
-            }
-            return;
+            LiveTurtles[message["payload"]["TurtleObject"]["id"]] = socket;
+
+            console.log(`Turtle ${TurtleObject.id} registered at ${TurtleObject.position}`);
         }
 
-        // --- Journey (pathfinding request) ---
         if (message.type === 'Journey') {
             const calculationStart = Date.now();
             const destinations = message.payload.destinations;
-            const TurtleObject = message.payload.TurtleObject || {};
-            const turtleID = TurtleObject.id || TurtleObject.turtleID;
-            const doAtTheEnd = message.payload.doAtTheEnd || 'go';
-            const networkDelay = message.payload.sendTime ? (Date.now() - message.payload.sendTime) : 0;
+            const TurtleObject = message.payload.TurtleObject;
+            const turtleID = TurtleObject.id; // make sure turtleID is provided
+            const networkDelay = Date.now() - message.payload.sendTime || 0;
 
             const journeyPath = aStar(
                 TurtleObject.position,
                 destinations,
                 TurtleObject.fuel,
-                WorldMap,
+                WorldMap, 
             );
 
             let returnMessage;
@@ -227,81 +205,59 @@ server.on('connection', socket => {
                         }
                     }
 
-                    if (step.unixArriveTime != null) step.unixArriveTime += delay;
-                    if (step.unixLeaveTime != null) step.unixLeaveTime += delay;
+                    if (step['unixArriveTime'] != null) step['unixArriveTime'] += delay;
+                    if (step['unixLeaveTime'] != null) step['unixLeaveTime'] += delay;   
 
-                    // --- skip final step if needed ---
-                    if (i === journeyPath.length - 1 && !doAtTheEnd.includes('go')) {
-                        break;
-                    }
-
-                    // --- ensure WorldMap entry exists and merge metadata ---
+                    // --- ensure WorldMap entry exists ---
                     if (!WorldMap[step.vector]) {
                         WorldMap[step.vector] = { turtles: {} };
-                    } else if (!WorldMap[step.vector].turtles) {
+                    }
+
+                    // --- register this turtle in object form ---
+                    if (!WorldMap[step.vector].turtles) {
                         WorldMap[step.vector].turtles = {};
                     }
 
-                    // --- register this turtle in object form (merge existing turtle metadata) ---
-                    const existing = WorldMap[step.vector].turtles[turtleID] || {};
-                    const stepTurtleData = (step.turtles && step.turtles[turtleID]) ? step.turtles[turtleID] : {};
                     WorldMap[step.vector].turtles[turtleID] = {
-                        ...existing,
-                        ...stepTurtleData
+                        ...(WorldMap[step.vector].turtles[turtleID] || {}),
+                        ...(step.turtles?.[turtleID] || {})
                     };
                 }
 
-                saveWorldMap();
-
-                // Filter to include only steps relevant to this turtle (or steps without turtle-specific data if that's what you want)
-                // I assume you want steps that include data for this turtle (previously code filtered opposite).
-                const filteredJourney = journeyPath.filter(step =>
-                    !step.turtles || Object.keys(step.turtles).length === 0 || (turtleID && step.turtles?.[turtleID])
-                );
+                fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
 
                 returnMessage = {
-                    type: 'NewPath',
-                    payload: {
-                        journeyPath: filteredJourney,
-                    }
+                    type : 'NewPath',
+                    payload : journeyPath
                 };
             } else {
                 returnMessage = {
-                    type: 'NewPath',
-                    payload: 'no path found'
+                    type : 'NewPath',
+                    payload : 'no path found'
                 };
             }
 
-            safeSend(socket, returnMessage);
-            return;
+            socket.send(JSON.stringify(returnMessage));
         }
 
-        // --- Delay Adjustment ---
+
         if (message.type === 'Delay Adjustment') {
-            // Calculate delay using sendTime if present
-            const delay = (typeof message.payload.delay === 'number' ? message.payload.delay : 0) +
-                (message.payload.sendTime ? (Date.now() - message.payload.sendTime) : 0);
-
-            const journeyStepIndex = (message.payload.TurtleObject && typeof message.payload.TurtleObject.journeyStepIndex === 'number')
-                ? message.payload.TurtleObject.journeyStepIndex - 1
-                : 0;
-
-            const turtleID = (message.payload.TurtleObject && (message.payload.TurtleObject.id || message.payload.TurtleObject.turtleID))
-                || message.payload.turtleID;
-
-            const journeyPath = message.payload.journeyPath || [];
+            const delay = message.payload.delay + Date.now() - message.payload.sendTime;
+            const journeyStepIndex = message.payload.TurtleObject.journeyStepIndex - 1;
+            const turtleID = message.payload.TurtleObject.id;
+            const journeyPath = message.payload.journeyPath;
 
             // adjust the first step
-            if (journeyPath[journeyStepIndex]) {
-                const firstStepVector = journeyPath[journeyStepIndex].vector;
-                const firstStepTurtle = WorldMap[firstStepVector]?.turtles?.[turtleID];
+            const firstStepVector = journeyPath[journeyStepIndex].vector;
+            const firstStepTurtle = WorldMap[firstStepVector]?.turtles?.[turtleID];
 
-                if (firstStepTurtle && firstStepTurtle.unixLeaveTime != null) {
-                    firstStepTurtle.unixLeaveTime += delay;
+            if (firstStepTurtle) {
+                if (firstStepTurtle["unixLeaveTime"] != null) {
+                    firstStepTurtle["unixLeaveTime"] += delay;
                 }
             }
 
-            // adjust remaining steps in WorldMap for that turtle
+            // adjust the remaining steps
             for (let i = journeyStepIndex + 1; i < journeyPath.length; i++) {
                 const stepVector = journeyPath[i].vector;
                 const t = WorldMap[stepVector]?.turtles?.[turtleID];
@@ -311,21 +267,17 @@ server.on('connection', socket => {
                 if (t.unixArriveTime != null) t.unixArriveTime += delay;
                 if (t.unixLeaveTime != null) t.unixLeaveTime += delay;
             }
-
-            saveWorldMap();
-            return;
         }
 
-        // --- Journeys End (cleanup turtle presence on steps) ---
         if (message.type === 'Journeys End') {
-            const journeyPath = message.payload.journeyPath || [];
+            const journeyPath = message.payload.journeyPath;
             const turtleID = message.payload.turtleID;
 
             for (const step of journeyPath) {
                 const key = step.vector;
 
                 if (!WorldMap[key] || !WorldMap[key].turtles) {
-                    continue;
+                    continue; // Skip if entry doesn’t exist
                 }
 
                 // remove this turtle
@@ -336,94 +288,57 @@ server.on('connection', socket => {
                     delete WorldMap[key].turtles;
                 }
             }
-
+            
             // notify other turtles at last position
             const returnMessage = { type: 'obstacle on your way' };
             const lastStep = journeyPath[journeyPath.length - 1];
-            if (lastStep) {
-                const turtlesAtEnd = WorldMap[lastStep.vector]?.turtles || {};
+            const turtlesAtEnd = WorldMap[lastStep.vector]?.turtles || {};
 
-                for (const otherTurtleID in turtlesAtEnd) {
-                    if (TurtleObjects[otherTurtleID] && TurtleObjects[otherTurtleID].socket) {
-                        safeSend(TurtleObjects[otherTurtleID].socket, returnMessage);
-                    }
+            for (const endTurtleID in turtlesAtEnd) {
+                if (TurtleObjects[endTurtleID]) {
+                    TurtleObjects[endTurtleID].socket.send(JSON.stringify(returnMessage));
                 }
             }
-
-            saveWorldMap();
-            return;
+            
+            fs.writeFileSync('WorldMap.json', JSON.stringify(WorldMap, null, 2));
         }
 
-        // --- TurtleScan (search computercraft dir for TurtleLog files) ---
         if (message.type === 'TurtleScan') {
-            let FoundTurtleObjects;
-            if (message.payload) {
-                const { IDs } = message.payload;
-                FoundTurtleObjects = findTurtleLogs(computercraftDirectory, IDs);
-            } else {
-                FoundTurtleObjects = findTurtleLogs(computercraftDirectory);
-            }
+            updateTurtleObjects();
 
             const returnMessage = {
                 type: 'TurtleScanResult',
-                payload: FoundTurtleObjects
+                payload: TurtleObjects
             };
 
-            safeSend(socket, returnMessage);
-            return;
+            socket.send(JSON.stringify(returnMessage));
         }
 
-        // --- blockData (client requests meta for specific vectors) ---
         if (message.type === 'blockData') {
-            const blockData = {};
+            const blockData = {}
             for (const vector of message.payload) {
-                blockData[vector] = WorldMap[vector] || null;
+                blockData[vector.toString()] = WorldMap[vector.toString()] || null;
+            }
+            
+            const returnMessage = {
+                type : 'blockData',
+                payload : blockData
             }
 
-            const returnMessage = {
-                type: 'blockData',
-                payload: blockData
-            };
-
-            safeSend(socket, returnMessage);
-            return;
+            socket.send(JSON.stringify(returnMessage));
         }
-
-        // Unknown message types fall through quietly (or log)
-        console.warn('Unhandled message type:', message.type);
     });
-
+    
     socket.on('close', () => {
-        // If it was a PC, remove it
-        if (PCs.includes(socket)) {
-            removePC(socket);
-            console.log('A PC disconnected');
-            return;
+        console.log('Turtle disconnected');
+
+        const returnMessage = {
+            type: 'TurtleDisconnect',
+            payload: Object.keys(TurtleObjects).find(id => TurtleObjects[id].socket === socket)
+        };
+
+        for (const pc of PCs) {
+            pc.send(JSON.stringify(returnMessage));
         }
-
-        // If it was a turtle, remove from registry and notify PCs
-        const turtleID = Object.keys(TurtleObjects).find(id => TurtleObjects[id].socket === socket);
-        if (turtleID) {
-            delete TurtleObjects[turtleID];
-            console.log(`Turtle ${turtleID} disconnected`);
-
-            const returnMessage = {
-                type: 'TurtleDisconnect',
-                payload: turtleID
-            };
-
-            for (const pc of PCs) {
-                safeSend(pc, returnMessage);
-            }
-        } else {
-            // Unknown socket closed
-            console.log('Unknown connection closed');
-        }
-    });
-
-    socket.on('error', (err) => {
-        console.error('Socket error:', err);
     });
 });
-
-console.log('WebSocket server listening on port 8080');

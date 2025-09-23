@@ -46,7 +46,7 @@ local function isDestination(destinations, currentKey)
     return false
 end
 
-function nav.aStar(args, WorldMap, turtleObject)
+function nav.aStar(args, WorldMap, TurtleObjects, turtleObject)
     if not WorldMap then
         WorldMap = {}
     end
@@ -60,7 +60,7 @@ function nav.aStar(args, WorldMap, turtleObject)
         fuelCost = 0,
         unixArriveTime = os.epoch("utc"),
         weight = utils.MultiManhattanDistance(args["beginning"], args["destinations"]),
-        turtles = WorldMap[args["beginning"]]["turtles"] or {},
+        turtles = {},
         waitTime = 0,
         turtleFace = args["initialDirection"],
         frbludDirection = nil
@@ -143,10 +143,6 @@ function nav.aStar(args, WorldMap, turtleObject)
                 current = cameFrom[current["vector"]:tostring()]
             end
 
-            if turtleObject and args.doAtTheEnd and not utils.TableContains(args.doAtTheEnd, "go") then
-                journeyPath[#journeyPath - 1]["turtles"][turtleObject["id"]]["unixLeaveTime"] = nil
-            end
-
             table.remove(journeyPath, 1)
             return journeyPath
         end
@@ -177,7 +173,7 @@ function nav.aStar(args, WorldMap, turtleObject)
                 -- BLOCKED NEIGHBOR CHECK
                 if WorldMap[neighborKey] and WorldMap[neighborKey]["blocked"] then           
                     if not args["dig"] then
-                        goto nextNeighbor  -- Skip blocked neighbors unless digging is allowed
+                        goto skip  -- Skip blocked neighbors unless digging is allowed
                     end
 
                     neighbor["weight"] = neighbor["weight"] + 100
@@ -192,13 +188,13 @@ function nav.aStar(args, WorldMap, turtleObject)
                     neighbor["weight"] = neighbor["weight"] + 2
                     neighbor["unixArriveTime"] = neighbor["unixArriveTime"] + TurnTime * 2
                 end
-
+                
                 -- OTHER TURTLES
                 for _, turtle in pairs(neighbor["turtles"]) do
                     -- arrive check
                     if turtle["unixArriveTime"] and neighbor["unixArriveTime"] - SafetyMargin >= turtle["unixArriveTime"] then 
                         if not turtle["unixLeaveTime"] then
-                            goto nextNeighbor
+                            goto skip
                         end
 
                         -- leave check
@@ -215,30 +211,25 @@ function nav.aStar(args, WorldMap, turtleObject)
                     if args["nonConformist"] then
                         neighbor["weight"] = neighbor["weight"] + 1
                     else
-                        -- NO FLOW CALCULATION FOR NOW
-
-                        -- local flow = flowCalculation(turtle["direction"], neighbor["neswudDirection"])
-                        -- if flow == "PathFlow" then
-                        --     neighbor["weight"] = neighbor["weight"] - 1
-                        -- elseif flow == "MergeFromSide" then
-                        --     neighbor["weight"] = neighbor["weight"] + 1
-                        -- elseif flow == "AgainstFlow" then
-                        --     neighbor["weight"] = neighbor["weight"] + 2
-                        -- end
-
                         neighbor["weight"] = neighbor["weight"] - 1
                     end
                 end
 
+                for _, turtle in pairs(current["turtles"]) do
+                    if turtle["unixArriveTime"] + SafetyMargin < neighbor["unixArriveTime"] then
+                        goto skip  -- Can't move into a space occupied by another turtle
+                    end
+                end
+
                 if neighbor["weight"] >= (bestCost[neighborKey] or math.huge) then
-                    goto nextNeighbor  -- This path is not better than what we already have
+                    goto skip  -- This path is not better than what we already have
                 end
 
                 bestCost[neighborKey] = neighbor["weight"]
                 cameFrom[neighborKey] = current
                 queue:push(neighbor)
 
-                ::nextNeighbor::
+                ::skip::
             end
         end
     end

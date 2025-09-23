@@ -74,24 +74,23 @@ function turtleLib.Sonar(TurtleObject, WorldMap, InFront, Above, Below, ws)
     }))
 end
 
-function turtleLib.SafeTurn(TurtleObject, WorldMap, direction)
-    if direction == "left" then
-        turtle.turnLeft()
-        TurtleObject["faceIndex"] = (TurtleObject["faceIndex"] - 2) % 4 + 1
-        TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
-    elseif direction == "right" then
-        turtle.turnRight()
-        TurtleObject["faceIndex"] = TurtleObject["faceIndex"] % 4 + 1
-        TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
-    end
-
-    turtleLib.Sonar(TurtleObject, WorldMap, true, false, false)
-
-    
-end
+-- function turtleLib.SafeTurn(TurtleObject, WorldMap, direction)
+--     if direction == "left" then
+--         turtle.turnLeft()
+--         TurtleObject["faceIndex"] = (TurtleObject["faceIndex"] - 2) % 4 + 1
+--         TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
+--     elseif direction == "right" then
+--         turtle.turnRight()
+--         TurtleObject["faceIndex"] = TurtleObject["faceIndex"] % 4 + 1
+--         TurtleObject["face"] = utils.neswDirections[TurtleObject["faceIndex"]]
+--     end
+-- 
+--     turtleLib.Sonar(TurtleObject, WorldMap, true, false, false)
+-- end
 
 function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
     local actionTable = {}
+
     actionTable["forward"] = function()
         if not turtle.detect() then
             turtle.forward()
@@ -172,6 +171,8 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
             end
         end
     end
+
+    actionTable[direction]()
 end
 
 function turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws)
@@ -179,22 +180,22 @@ function turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, w
     return turtleLib.SafeMove(TurtleObject, WorldMap, flrDirection, i, ws)
 end
 
-function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
-    local targetV = vector.new(x, y, z)
-    local delta = targetV:sub(TurtleObject["position"])
-    
-    if delta:length() ~= 1 then
-        return false
-    end
-    
-    local neswudDirection = utils.duwsenDirectionVectors[delta:tostring()]
-
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws) then
-        return false
-    end
-
-    return true
-end
+-- function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
+--     local targetV = vector.new(x, y, z)
+--     local delta = targetV:sub(TurtleObject["position"])
+--     
+--     if delta:length() ~= 1 then
+--         return false
+--     end
+--     
+--     local neswudDirection = utils.duwsenDirectionVectors[delta:tostring()]
+-- 
+--     if not turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws) then
+--         return false
+--     end
+-- 
+--     return true
+-- end
 
 local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i, ws) then
@@ -215,7 +216,7 @@ local function handleMovement(TurtleObject, WorldMap, step, i, ws)
     return true
 end
 
-local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
+local function subJourney(TurtleObject, WorldMap, destinations, ws, interruption)
     repeat
         local closestDestination = vector.new()
         -- local syncDelay = 0
@@ -227,7 +228,6 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
                 payload = {
                     TurtleObject = TurtleObject,
                     destinations = destinations,
-                    doAtTheEnd = doAtTheEnd,
                     sendTime = os.epoch()
                 }
             }))
@@ -242,10 +242,7 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
                 return false
             end
 
-            if doAtTheEnd ~= "go" then
-                table.remove(journeyPath, #journeyPath) -- Remove the last step if it's not "go"
-            end
-            closestDestination = journeyPath[#journeyPath].vector
+            local closestDestination = journeyPath[#journeyPath].vector
 
             TurtleObject["journeyPath"] = journeyPath
             TurtleObject["journeyStepIndex"] = 1
@@ -290,7 +287,7 @@ local function subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, 
     return true
 end
 
-local function checkForInterruptions(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
+local function checkForInterruptions(TurtleObject, WorldMap, destinations, ws, interruption)
     while true do
         local message = utils.listenForWsMessages({
             "obstacle on your way",
@@ -311,15 +308,15 @@ local function checkForInterruptions(TurtleObject, WorldMap, destinations, doAtT
     end
 end
 
-function turtleLib.Journey(TurtleObject, WorldMap, destinations, doAtTheEnd, ws)
+function turtleLib.Journey(TurtleObject, WorldMap, destinations, ws)
     local interruption = { false }
     parallel.waitForAny(
         function()
-            subJourney(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
+            subJourney(TurtleObject, WorldMap, destinations, ws, interruption)
         end,
 
         function()
-            checkForInterruptions(TurtleObject, WorldMap, destinations, doAtTheEnd, ws, interruption)
+            checkForInterruptions(TurtleObject, WorldMap, destinations, ws, interruption)
         end
     )
 end

@@ -53,6 +53,16 @@ utils.duwsenDirectionVectors = {
     [vector.new(0, -1, 0):tostring()] = "down"
 }
 
+function utils.getNeighbors(v)
+    local neighbors = {}
+    for _, directionVector in pairs(utils.neswudDirectionVectors) do
+        table.insert(neighbors, v:add(directionVector))
+    end
+
+    return neighbors
+end
+
+
 -- function utils.getcentralVector    return {
 --         centralVector:add(vector.new(1, 0, 0)),
 --         centralVector:add(vector.new(-1, 0, 0)),
