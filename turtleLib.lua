@@ -88,17 +88,13 @@ end
 --     turtleLib.Sonar(TurtleObject, WorldMap, true, false, false)
 -- end
 
-function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
+function turtleLib.SafeMove(TurtleObject, WorldMap, direction, ws)
     local actionTable = {}
 
     actionTable["forward"] = function()
         if not turtle.detect() then
             turtle.forward()
             TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors[TurtleObject["face"]])
-
-            if i then
-                TurtleObject["journeyStepIndex"] = i
-            end
 
             turtleLib.Sonar(TurtleObject, WorldMap, true, true, true, ws)
             
@@ -112,11 +108,6 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
         if not turtle.detectUp() then
             turtle.up()
             TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["up"])
-
-            if i then
-                TurtleObject["journeyStepIndex"] = i
-            end
-
             turtleLib.Sonar(TurtleObject, WorldMap, true, true, false, ws)
             
             return true
@@ -129,11 +120,6 @@ function turtleLib.SafeMove(TurtleObject, WorldMap, direction, i, ws)
         if not turtle.detectDown() then
             turtle.down()
             TurtleObject["position"] = TurtleObject["position"]:add(utils.neswudDirectionVectors["down"])
-
-            if i then
-                TurtleObject["journeyStepIndex"] = i
-            end
-
             turtleLib.Sonar(TurtleObject, WorldMap, true, false, true, ws)
             
             return true
@@ -177,7 +163,7 @@ end
 
 function turtleLib.MoveToDirection(TurtleObject, WorldMap, neswudDirection, i, ws)
     local flrDirection = utils.neswudToFlrud(neswudDirection)
-    return turtleLib.SafeMove(TurtleObject, WorldMap, flrDirection, i, ws)
+    return turtleLib.SafeMove(TurtleObject, WorldMap, flrDirection, ws)
 end
 
 -- function turtleLib.MoveToNeighbor(TurtleObject, WorldMap, x, y, z, i, ws)
@@ -197,30 +183,8 @@ end
 --     return true
 -- end
 
-local function handleMovement(TurtleObject, WorldMap, step, i, ws)
-    if not turtleLib.MoveToDirection(TurtleObject, WorldMap, step, i, ws) then
-        print("Failed to move to direction: " .. step["direction"])
-        
-        for _, passingTurtleID in ipairs(step["turtles"]) do
-            ws.send(textutils.serializeJSON({
-                type = "PassThrough",
-                receiver = passingTurtleID,
-                newHeader = "obstacle on your way",
-                payload = { roadBlock = TurtleObject["position"]:add(utils.neswudDirectionVectors[step["direction"]]) }
-            }))
-        end
-
-        return false
-    end
-
-    return true
-end
-
 local function subJourney(TurtleObject, WorldMap, destinations, ws, interruption)
-    repeat
-        local closestDestination = vector.new()
-        -- local syncDelay = 0
-
+    while true do
         -- If journeyPath not yet set, request it from the server
         if not TurtleObject["journeyPath"] then
             ws.send(textutils.serializeJSON({
@@ -233,41 +197,37 @@ local function subJourney(TurtleObject, WorldMap, destinations, ws, interruption
             }))
 
             local message = utils.listenForWsMessage("NewPath")
-            local journeyPath = message.payload.journeyPath
-
             if message.payload == "no path found" then
                 print("I am trapped :(")
                 TurtleObject["journeyStepIndex"] = nil
                 TurtleObject["journeyPath"] = nil
                 return false
             end
-
-            local closestDestination = journeyPath[#journeyPath].vector
-
-            TurtleObject["journeyPath"] = journeyPath
+            
+            TurtleObject["journeyPath"] = message.payload.journeyPath
             TurtleObject["journeyStepIndex"] = 1
 
-            print("Best path found with " .. #journeyPath .. " steps.")
+            print("Best path found with " .. #TurtleObject["journeyPath"] .. " steps.")
         end
         
         -- Follow the current journeyPath
         while TurtleObject["journeyPath"] and TurtleObject["journeyStepIndex"] <= #TurtleObject["journeyPath"] do
             local step = TurtleObject["journeyPath"][TurtleObject["journeyStepIndex"]]
 
-            os.sleep(step["syncDelay"]/1000)
+            os.sleep(step["waitTime"]/1000)
 
             if TurtleObject["journeyStepIndex"] < #TurtleObject["journeyPath"] or step.special.lastBlock == "go" then
-                if handleMovement(TurtleObject, WorldMap, step, TurtleObject["journeyStepIndex"], ws) == false then
+                if not turtleLib.SafeMove(WorldMap, step["frbludDirection"], ws) then
                     break
                 end
             end
-            
+
             if interruption[1] == true then
                 interruption[1] = false
                 break
             end
-            TurtleObject["journeyStepIndex"] = TurtleObject["journeyStepIndex"] + 1
             
+            TurtleObject["journeyStepIndex"] = TurtleObject["journeyStepIndex"] + 1
         end
 
         -- Clear after journey finished
@@ -282,7 +242,10 @@ local function subJourney(TurtleObject, WorldMap, destinations, ws, interruption
             }
         }))
 
-    until TurtleObject["position"]:equals(closestDestination)
+        if TurtleObject["position"]:equals(TurtleObject["journeyPath"][#journeyPath]["vector"]) then
+            break
+        end
+    end
 
     return true
 end
@@ -295,7 +258,7 @@ local function checkForInterruptions(TurtleObject, WorldMap, destinations, ws, i
         })
 
         -- Replace the journey path with the new one from the message
-        local newPath = message.payload.newPath
+        local newPath = message.payload.newPath or nil
         if newPath and type(newPath) == "table" then
             print("Received new path from server, updating journey...")
 

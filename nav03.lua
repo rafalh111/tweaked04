@@ -46,7 +46,7 @@ local function isDestination(destinations, currentKey)
     return false
 end
 
-function nav.aStar(args, WorldMap, TurtleObjects, turtleObject)
+function nav.aStar(args, WorldMap, turtleObject)
     if not WorldMap then
         WorldMap = {}
     end
