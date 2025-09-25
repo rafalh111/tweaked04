@@ -34,7 +34,8 @@ function flowCalculation(flowDir, neighborDir) {
     return "MergeFromSide";
 }
 
-function isDestination(destinations, currentKey) {
+function isDestination(destinations, currentKey, invert) {
+    if (invert) return destinations.every(dest => dest.toString() !== currentKey);
     return destinations.some(dest => dest.toString() === currentKey);
 }
 
@@ -100,7 +101,7 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
         }
 
         // --- PATH RECONSTRUCTION ---
-        if (isDestination(args["destinations"], currentKey)) {
+        if (isDestination(args["destinations"], currentKey, args["invert"])) {
             const journeyPath = [];
             let node = current;
 

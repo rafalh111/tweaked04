@@ -116,9 +116,7 @@ function updateTurtleObjects(directory) {
 
             Object.entries(turtlesAtPos).forEach(([interruptedID, interruptedTurtle]) => {
                 if (interruptedID !== String(turtle.id) && interruptedTurtle?.unixArriveTime >= Date.now()) {
-                    if (LiveTurtles[interruptedID]) {
-                        safeSend(LiveTurtles[interruptedID], { type: 'obstacle on your way' });
-                    }
+                    safeSend(LiveTurtles[interruptedID], { type: 'obstacle on your way' });
                 }
             });
         }
@@ -168,9 +166,7 @@ server.on('connection', socket => {
                     
                     Object.entries(WorldMap[vectorKey]["turtles"]).forEach(([interruptedID, interruptedTurtle]) => {
                         if (interruptedTurtle.unixArriveTime >= Date.now()) {
-                            if (LiveTurtles[interruptedID]) {
-                                safeSend(LiveTurtles[interruptedID], { type: 'obstacle on your way' });
-                            }
+                            safeSend(LiveTurtles[interruptedID], { type: 'obstacle on your way' });
                         }
                     });
                 } else if (!inspectVariables.blocked && WorldMap[vectorKey]) {
@@ -221,13 +217,13 @@ server.on('connection', socket => {
                 let delay = Date.now() - calculationStart + networkDelay;
 
                 for (const step of journeyPath) {
-                    if (step.syncDelay > 0) {
-                        let diff = step.syncDelay - delay;
+                    if (step.waitTime > 0) {
+                        let diff = step.waitTime - delay;
                         if (diff > 0) {
-                            step.syncDelay -= delay;
+                            step.waitTime -= delay;
                             delay = 0;
                         } else {
-                            step.syncDelay = 0;
+                            step.waitTime = 0;
                             delay = Math.abs(diff);
                         }
                     }
@@ -243,6 +239,12 @@ server.on('connection', socket => {
                         ...(step.turtles?.[turtleID] || {})
                     };
                 }
+
+                Object.entries(journeyPath[journeyPath.length - 1]["turtles"]).forEach(([interruptedID, interruptedTurtle]) => {
+                    if (interruptedTurtle.unixArriveTime >= Date.now()) {
+                        safeSend(LiveTurtles[interruptedID], { type: 'obstacle on your way' });
+                    }
+                });
 
                 saveWorldMap();
 

@@ -8,6 +8,19 @@ local parallel
 
 local turtleLib = {}
 
+local function blockIsOnTheMap(dataOfTheBlock, placeOnTheMap)
+    for _, block in ipairs(placeOnTheMap["blocks"] or {}) do
+        if block["placeTime"] < os.epoch() or nil and 
+            block["removeTime"] > os.epoch() and 
+            dataOfTheBlock == block["data"] 
+        then
+            return true
+        end
+    end
+
+    return false
+end
+
 function turtleLib.LoadTurtleState(ws, defaultTurtle)
     local turtleLog = utils.ReadAndUnserialize("turtleLog")
     local realTurtle = defaultTurtle or {}   -- this will hold actual data
@@ -60,10 +73,13 @@ function turtleLib.Sonar(TurtleObject, WorldMap, InFront, Above, Below, ws)
     end
 
     for vectorKey, inspectVariables in pairs(detectedChanges) do
-        if inspectVariables.blocked and not WorldMap[vectorKey] then
-            WorldMap[vectorKey] = inspectVariables.data;
-            WorldMap[vectorKey]["blocked"] = true
-        elseif not inspectVariables.blocked and WorldMap[vectorKey] then
+        if inspectVariables["blocked"] and not blockIsOnTheMap(inspectVariables["data"], WorldMap[vectorKey]) then
+            WorldMap[vectorKey]["blocks"].insert({
+                data = inspectVariables["data"],
+                placeTime = nil, removeTime = nil,
+                detectionTime = os.epoch()
+            })
+        elseif not inspectVariables["blocked"] and blockIsOnTheMap(inspectVariables["data"], WorldMap[vectorKey]) then
             WorldMap[vectorKey] = nil
         end
     end
@@ -242,7 +258,7 @@ local function subJourney(TurtleObject, WorldMap, destinations, ws, interruption
             }
         }))
 
-        if TurtleObject["position"]:equals(TurtleObject["journeyPath"][#journeyPath]["vector"]) then
+        if TurtleObject["position"]:equals(TurtleObject["journeyPath"][#TurtleObject["journeyPath"]]["vector"]) then
             break
         end
     end
