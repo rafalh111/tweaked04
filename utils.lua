@@ -11,6 +11,7 @@ utils.neswudDirections = {
     ["down"] = 6
 }
 
+utils.duwsenDirections = {"north", "east", "south", "west", "up", "down"}
 utils.FrbludDirections = {"forward", "right", "left", "back", "up", "down"}
 
 function utils.neswudToFrblud(startNeswudDirection, endNeswudDirection)

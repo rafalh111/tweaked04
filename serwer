@@ -190,20 +190,19 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'TurtleBorn') {
-            const turtleID = message.payload.TurtleObject.id;
-            if (LiveTurtles[turtleID]) {
-                console.warn(`Turtle ${turtleID} is already registered, replacing socket`);
+            const TurtleObject.id = message.payload.TurtleObject.id;
+            if (LiveTurtles[TurtleObject.id]) {
+                console.warn(`Turtle ${TurtleObject.id} is already registered, replacing socket`);
             }
-            LiveTurtles[turtleID] = socket;
-            console.log(`Turtle ${turtleID} registered at ${message.payload.TurtleObject.position}`);
+            LiveTurtles[TurtleObject.id] = socket;
+            console.log(`Turtle ${TurtleObject.id} registered at ${message.payload.TurtleObject.position}`);
         }
 
         if (message.type === 'Journey') {
-            const calculationStart = Date.now();
             const destinations = message.payload.destinations;
             const TurtleObject = message.payload.TurtleObject;
-            const turtleID = TurtleObject.id;
             const networkDelay = Date.now() - message.payload.sendTime || 0;
+            const calculationStart = Date.now();
 
             const journeyPath = aStar(
                 TurtleObject.position,
@@ -234,9 +233,9 @@ server.on('connection', socket => {
                     if (!WorldMap[step.vector]) WorldMap[step.vector] = { turtles: {} };
                     if (!WorldMap[step.vector].turtles) WorldMap[step.vector].turtles = {};
 
-                    WorldMap[step.vector].turtles[turtleID] = {
-                        ...(WorldMap[step.vector].turtles[turtleID] || {}),
-                        ...(step.turtles?.[turtleID] || {})
+                    WorldMap[step.vector].turtles[TurtleObject.id] = {
+                        ...(WorldMap[step.vector].turtles[TurtleObject.id] || {}),
+                        ...(step.turtles?.[TurtleObject.id] || {})
                     };
                 }
 
@@ -259,18 +258,18 @@ server.on('connection', socket => {
         if (message.type === 'Delay Adjustment') {
             const delay = message.payload.delay + Date.now() - message.payload.sendTime;
             const journeyStepIndex = message.payload.TurtleObject.journeyStepIndex - 1;
-            const turtleID = message.payload.TurtleObject.id;
+            const TurtleObject.id = message.payload.TurtleObject.id;
             const journeyPath = message.payload.journeyPath;
 
             const firstStepVector = journeyPath[journeyStepIndex].vector;
-            const firstStepTurtle = WorldMap[firstStepVector]?.turtles?.[turtleID];
+            const firstStepTurtle = WorldMap[firstStepVector]?.turtles?.[TurtleObject.id];
             if (firstStepTurtle && firstStepTurtle.unixLeaveTime != null) {
                 firstStepTurtle.unixLeaveTime += delay;
             }
 
             for (let i = journeyStepIndex + 1; i < journeyPath.length; i++) {
                 const stepVector = journeyPath[i].vector;
-                const t = WorldMap[stepVector]?.turtles?.[turtleID];
+                const t = WorldMap[stepVector]?.turtles?.[TurtleObject.id];
                 if (!t) continue;
                 if (t.unixArriveTime != null) t.unixArriveTime += delay;
                 if (t.unixLeaveTime != null) t.unixLeaveTime += delay;
@@ -279,13 +278,13 @@ server.on('connection', socket => {
 
         if (message.type === 'Journeys End') {
             const journeyPath = message.payload.journeyPath;
-            const turtleID = message.payload.turtleID;
+            const TurtleObject.id = message.payload.TurtleObject.id;
 
             for (const step of journeyPath) {
                 const key = step.vector;
                 if (!WorldMap[key] || !WorldMap[key].turtles) continue;
 
-                delete WorldMap[key].turtles[turtleID];
+                delete WorldMap[key].turtles[TurtleObject.id];
                 if (Object.keys(WorldMap[key].turtles).length === 0) {
                     delete WorldMap[key];
                 }
