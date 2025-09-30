@@ -39,7 +39,7 @@ function isDestination(destinations, currentKey, invert) {
     return destinations.some(dest => dest.toString() === currentKey);
 }
 
-export async function aStar(args, WorldMap = {}, turtleObject) {
+export async function aStar(args) {
     const queue = new Heap();
 
     const start = {
@@ -81,15 +81,14 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
 
                 let reachable = false;
                 for (const destination of args["destinations"]) {
-                    const reverseArgs = {
-                        beginning: destination,
-                        destinations: [args["beginning"]],
-                        initialDirection: oppositeDirection(current["direction"]),
-                        isReverse: true,
-                        reverseCheck: true
-                    };
+                    const reverseArgs = args;
+                    reverseArgs["beginning"] = destination;
+                    reverseArgs["destinations"] = [args["beginning"]];
+                    reverseArgs["initialDirection"] = oppositeDirection(current["direction"]);
+                    reverseArgs["isReverse"] = true;
+                    reverseArgs["reverseCheck"] = true;
 
-                    if (await aStar(reverseArgs, WorldMap, turtleObject)) {
+                    if (await aStar(reverseArgs)) {
                         reachable = true;
                         break;
                     }
@@ -113,11 +112,11 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
                     waitTime: node.waitTime
                 };
 
-                if (turtleObject) {
-                    journeyStep.turtles[turtleObject.id] = {
+                if (args["id"]) {
+                    journeyStep.turtles[args["id"]] = {
                         direction: node.neswudDirection,
                         unixArriveTime: node.unixArriveTime,
-                        unixLeaveTime: journeyPath[0]?.turtles?.[turtleObject.id]?.unixArriveTime || null
+                        unixLeaveTime: journeyPath[0]?.turtles?.[args["id"]]?.unixArriveTime || null
                     };
                 }
 
@@ -130,7 +129,7 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
         }
 
         // --- QUEUE BUILD ---
-        if (current.fuelCost * 2 < turtleObject.fuel) {
+        if (current.fuelCost * 2 < args["fuel"].fuel) {
             const neighborVectors = getNeighbors(current.vector);
 
             for (const neighborVector of neighborVectors) {
@@ -143,7 +142,7 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
                     fuelCost: current.fuelCost + 1,
                     unixArriveTime: current.unixArriveTime + StepTime,
                     weight: current.weight + MultiManhattanDistance(neighborVector, args["destinations"]) + 1,
-                    turtles: WorldMap[neighborKey]?.turtles || {},
+                    turtles: args["WorldMap"][neighborKey]?.turtles || {},
                     waitTime: 0,
                     turtleFace: (["up", "down"].includes(duwsenDirectionVectors[directionKey]))
                         ? current.turtleFace
@@ -152,7 +151,7 @@ export async function aStar(args, WorldMap = {}, turtleObject) {
                 };
 
                 // BLOCKED NEIGHBOR
-                if (WorldMap[neighborKey]?.blocked) {
+                if (args["WorldMap"][neighborKey]?.blocked) {
                     if (!args["dig"]) continue;
                     neighbor.weight += 100;
                     neighbor.unixArriveTime += DigTime;

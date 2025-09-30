@@ -13,6 +13,12 @@ const server = new WebSocket.Server({ port: 8080 });
 let TurtleObjects = {};
 let LiveTurtles = {};
 const WorldMap = {};
+const TimeTable = {
+    step: 1000,
+    turn: 500,
+    dig: 2000,
+    place: 1000,
+};
 let PCs = [];
 const computercraftDirectory = './computercraft';
 
@@ -190,12 +196,42 @@ server.on('connection', socket => {
         }
 
         if (message.type === 'TurtleBorn') {
-            const TurtleObject.id = message.payload.TurtleObject.id;
+            const TurtleObject = message.payload.TurtleObject;
             if (LiveTurtles[TurtleObject.id]) {
                 console.warn(`Turtle ${TurtleObject.id} is already registered, replacing socket`);
             }
             LiveTurtles[TurtleObject.id] = socket;
             console.log(`Turtle ${TurtleObject.id} registered at ${message.payload.TurtleObject.position}`);
+        }
+
+        if (message.type === 'GoogleMaps') {
+            const startTime = message.payload.startTime || Date.now();
+            const destinations = message.payload.destinations;
+            const TurtleObject = message.payload.TurtleObject;
+            const invert = message.payload.invert || false;
+            const dig = message.payload.dig || false;
+            const initialDirection = message.payload.initialDirection || TurtleObject.direction;
+            const beginning = message.payload.beginning || TurtleObject.position; 
+            const fuel = message.payload.fuel || TurtleObject.fuel;
+            const id = TurtleObject.id || null;
+
+
+            const journeyPath = aStar({
+                beginning: beginning,
+                destinations: destinations,
+                initialDirection: initialDirection,
+                TurtleObject: TurtleObject,
+                invert: invert,
+                dig: dig,
+                WorldMap: WorldMap,
+                TimeTable: TimeTable,
+                startTime: startTime,
+                fuel: fuel,
+                id: id
+            });
+
+            const returnMessage = journeyPath ? { type: 'NewPath', payload: journeyPath } : { type: 'NewPath', payload: 'no path found' };
+            safeSend(socket, returnMessage);
         }
 
         if (message.type === 'Journey') {
@@ -258,7 +294,6 @@ server.on('connection', socket => {
         if (message.type === 'Delay Adjustment') {
             const delay = message.payload.delay + Date.now() - message.payload.sendTime;
             const journeyStepIndex = message.payload.TurtleObject.journeyStepIndex - 1;
-            const TurtleObject.id = message.payload.TurtleObject.id;
             const journeyPath = message.payload.journeyPath;
 
             const firstStepVector = journeyPath[journeyStepIndex].vector;
@@ -278,7 +313,7 @@ server.on('connection', socket => {
 
         if (message.type === 'Journeys End') {
             const journeyPath = message.payload.journeyPath;
-            const TurtleObject.id = message.payload.TurtleObject.id;
+            const TurtleObject = message.payload.TurtleObject;
 
             for (const step of journeyPath) {
                 const key = step.vector;
